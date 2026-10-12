@@ -1451,6 +1451,7 @@
   <div class="item"><div class="label">💰 Золото</div><div class="value gold" id="gold">0</div></div>
   <div class="item"><div class="label">💎 Кристаллы</div><div class="value crystals" id="crystalsHud">0</div></div>
   <div class="item"><div class="label">🌊 Волна</div><div class="value wave" id="waveNum">0</div></div>
+  <div class="item"><div class="label">👾 Осталось врагов</div><div class="value" id="enemiesLeft" style="color:#f87171;">0</div></div>
   <div class="item"><div class="label">💀 Сбито</div><div class="value kill" id="kills">0</div></div>
   <div class="item"><div class="label">🌌 Престиж</div><div class="value prestige" id="prestigeRank">0 / 10</div></div>
 </div>
@@ -1563,12 +1564,16 @@
       <span class="vol-value" id="volSfxVal">80%</span>
     </div>
 
-    <div class="settings-bottom" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-      <button class="settings-close" id="settingsCloseBtn">✕ Закрыть</button>
-      <button class="settings-close" id="settingsBackupBtn" style="background:linear-gradient(135deg,#f59e0b,#d97706);">
-        💾 Восстановить из бэкапа
-      </button>
-    </div>
+<div class="settings-bottom" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+  <button class="settings-close" id="settingsCloseBtn">✕ Закрыть</button>
+  <button class="settings-close" id="exportSaveBtn" style="background:linear-gradient(135deg,#22c55e,#16a34a);">
+    📥 Скачать сейв
+  </button>
+  <button class="settings-close" id="importSaveBtn" style="background:linear-gradient(135deg,#f59e0b,#d97706);">
+    📤 Загрузить сейв
+  </button>
+  <input type="file" id="importSaveInput" accept=".json" style="display:none;">
+</div>
   </div>
 </div>
 <!-- Кнопка выбора волны -->
@@ -1773,30 +1778,23 @@
 </div>
 
 <script>
-/* ============ ЗАЩИТА ОТ ОТЛАДКИ В КОНСОЛИ ============ */
+/* ============ УЛУЧШЕННАЯ ЗАЩИТА ОТ ОТЛАДКИ ============ */
 (function hardAntiCheat() {
-  // ============================================================
-  // 1) ЛОКАЕМ ВСТРОЕННЫЕ ФУНКЦИИ, ЧЕРЕЗ КОТОРЫЕ ОБХОДЯТ ЗАЩИТУ
-  // ============================================================
   const lock = (obj, prop, value, enumerable = false) => {
     try {
       Object.defineProperty(obj, prop, {
-        value,
-        writable: false,
-        configurable: false,
-        enumerable,
+        value, writable: false, configurable: false, enumerable,
       });
     } catch(e) {}
   };
 
-  // eval — полностью режем
+  // 1) Режем eval
   lock(window, 'eval', function() {
     try { window.__reportIntegrityBreach && window.__reportIntegrityBreach('eval'); } catch(e) {}
     return undefined;
   });
 
-  // Function-конструктор — оставляем (иначе сломается сам движок),
-  // но помечаем каждый вызов как подозрительный
+  // 2) Помечаем вызовы Function-конструктора
   const RealFunction = window.Function;
   try {
     Object.defineProperty(window, 'Function', {
@@ -1808,7 +1806,7 @@
     });
   } catch(e) {}
 
-  // setTimeout / setInterval со строкой — запрещаем
+  // 3) Запрет setTimeout/setInterval со строкой
   const realSetTimeout = window.setTimeout.bind(window);
   const realSetInterval = window.setInterval.bind(window);
   lock(window, 'setTimeout', function(fn, delay, ...rest) {
@@ -1826,9 +1824,7 @@
     return realSetInterval(fn, delay, ...rest);
   });
 
-  // ============================================================
-  // 2) ГЛУШИМ КОНСОЛЬ
-  // ============================================================
+  // 4) Глушим консоль, но сохраняем настоящие методы для внутреннего использования
   const realLog   = console.log.bind(console);
   const realWarn  = console.warn.bind(console);
   const realError = console.error.bind(console);
@@ -1848,9 +1844,7 @@
   for (const m of methods) {
     try {
       Object.defineProperty(console, m, {
-        get() { return silent; },
-        set() {},
-        configurable: false,
+        get() { return silent; }, set() {}, configurable: false,
       });
     } catch(e) {}
   }
@@ -1860,9 +1854,7 @@
   } catch(e) {}
   try { Object.freeze(console); } catch(e) {}
 
-  // ============================================================
-  // 3) БЛОКИРУЕМ fetch/XHR/WebSocket НА ЛЕВЫЕ ДОМЕНЫ
-  // ============================================================
+  // 5) Блокируем fetch на левые домены
   const realFetch = window.fetch;
   if (typeof realFetch === 'function') {
     lock(window, 'fetch', function(input, init) {
@@ -1880,34 +1872,25 @@
     });
   }
 
-  // ============================================================
-  // 4) ЗАЩИТА localStorage ОТ ПОДМЕНЫ
-  // ============================================================
+  // 6) Защита localStorage от подмены
   const realLS = window.localStorage;
   try {
     Object.defineProperty(window, 'localStorage', {
-      value: realLS,
-      writable: false,
-      configurable: false,
+      value: realLS, writable: false, configurable: false,
     });
   } catch(e) {}
 
-  // ============================================================
-  // 5) СЛЕДИМ ЗА ПОДМЕНОЙ KEY-ГЛОБАЛОВ (state, save, makeDefaultState)
-  // ============================================================
+  // 7) Следим за подменой глобалов
   window.__integrityAlerts = [];
   window.__reportIntegrityBreach = function(reason) {
-    try {
-      window.__integrityAlerts.push({ reason, t: Date.now() });
-    } catch(e) {}
+    try { window.__integrityAlerts.push({ reason, t: Date.now() }); } catch(e) {}
     try { window.__detectedCheat && window.__detectedCheat(reason); } catch(e) {}
   };
 
-  // Периодически проверяем, что критические функции не подменены
+  // 8) НОВОЕ: следим за попыткой переопределить критичные функции
   const _criticalFns = {};
   setInterval(() => {
     try {
-      // Проверка: не подменили ли makeDefaultState / save / state
       if (typeof makeDefaultState === 'function') {
         if (!_criticalFns.makeDefaultState) _criticalFns.makeDefaultState = makeDefaultState;
         else if (makeDefaultState !== _criticalFns.makeDefaultState) {
@@ -1920,7 +1903,6 @@
           window.__reportIntegrityBreach('save-swap');
         }
       }
-      // Проверка: state не подменён на чужой объект
       if (typeof state === 'object' && state !== null) {
         if (typeof state.gold !== 'number' || !isFinite(state.gold)) {
           window.__reportIntegrityBreach('state-gold-corrupt');
@@ -1930,7 +1912,10 @@
   }, 5000);
 
 })();
-
+/* ============ ПЕРЕМЕННЫЕ КОНСТРУКТОРА (объявлены рано!) ============ */
+let builderMode = false;
+let builderSelected = null;
+let builderMoving = null;
 // === Безопасное получение ссылок на консоль ===
 const _log = (window.__realConsole && window.__realConsole.log) ? window.__realConsole.log.bind(console) : console.log.bind(console);
 const _warn = (window.__realConsole && window.__realConsole.warn) ? window.__realConsole.warn.bind(console) : console.warn.bind(console);
@@ -2315,6 +2300,12 @@ const NECROMANCER_MISS_CHANCE = 0.50;
 const BARRACKS_START_WAVE = 51;
 const BARRACKS_SPAWN_INTERVAL = 10;
 const EXTRA_LEVELS = 250; // Уменьшено с 900 до 250
+// === НАСТРОЙКИ ШАРИКОВ ВЕРИТИ ===
+const VERITY_BALL_DAMAGE_PERCENT = 0.03;      // 3% от макс HP ПВО за удар
+const VERITY_BALL_ATTACK_COOLDOWN = 1.5;      // секунд между ударами
+const VERITY_BALL_STOP_DISTANCE = 50; 
+const VERITY_BALL_HP_PERCENT = 0.05;        // 5% от maxHp Верити
+const VERITY_BALL_SHIELD_MULT = 1.2;        // щит = 1.2 × HP        // на каком расстоянии от центра ПВО останавливается
 const PRICE_MULTIPLIER = 5; // Цена увеличена в 5 раз
 const EFFECT_MULTIPLIER = 4; // Эффект увеличен в 4 раза
 const DAMAGE_SCALE_PER_WAVE = 0.10; // +10% урона мобов за каждую волну от базового
@@ -2514,7 +2505,7 @@ const MUTATION_UPGRADES = [
 
 const UPGRADES = [
   { id: 'damage', name: 'Урон ракеты', icon: '🚀', desc: 'Урон каждой ракеты', maxLevel: BASE_MAX_LEVEL, baseCost: 15 * PRICE_MULTIPLIER, costMult: 1.15, effect: lvl => (10 + lvl * 16) * 2.5, effectText: lvl => `${((10 + lvl * 16) * 2.5).toFixed(0)}` },
-  { id: 'firerate', name: 'Скорость пуска', icon: '⚡', desc: 'Пусков в секунду (÷5 от базовой)', maxLevel: BASE_MAX_LEVEL, baseCost: 25 * PRICE_MULTIPLIER, costMult: 1.18, effect: lvl => (1 + lvl * 0.6) / 5, effectText: lvl => `${((1 + lvl * 0.6) / 5).toFixed(2)}/с` },
+{ id: 'firerate', name: 'Скорость пуска', icon: '⚡', desc: 'Пусков в секунду (÷5 от базовой)', maxLevel: BASE_MAX_LEVEL, baseCost: 25 * PRICE_MULTIPLIER, costMult: 1.18, effect: lvl => (1 + lvl * 0.6) / 5, effectText: lvl => `${((1 + lvl * 0.6) / 5).toFixed(2)}/с` },
   { id: 'range', name: 'Радиус обзора', icon: '🎯', desc: 'Дальность перехвата (макс. 600px)', maxLevel: 100, baseCost: 40 * PRICE_MULTIPLIER, costMult: 1.22, effect: lvl => Math.min(600, 195 + lvl * 4.05), effectText: lvl => `${Math.round(Math.min(600, 195 + lvl * 4.05))}px` },
   { id: 'crit', name: 'Крит-шанс', icon: '💥', desc: 'Шанс крита (×3), макс. 50%', maxLevel: BASE_MAX_LEVEL, baseCost: 60 * PRICE_MULTIPLIER, costMult: 1.20, effect: lvl => Math.min(lvl * 0.002, 0.5), effectText: lvl => `${(Math.min(lvl * 0.002, 0.5) * 100).toFixed(1)}%` },
   { id: 'multishot', name: 'Мультипуск', icon: '🏹', desc: 'Захват N целей одновременно', maxLevel: 50, baseCost: 200 * PRICE_MULTIPLIER, costMult: 1.6, effect: lvl => 1 + lvl, effectText: lvl => `${1 + lvl}` },
@@ -2698,6 +2689,9 @@ function makeDefaultState() {
     // Сбрасывается в false только при успешном endWave() или
     // явном пропуске через выбор волны / престиж / reset.
     waveInProgress: false,
+    // === НОВОЕ: жёсткая блокировка повторного старта ===
+    // true — пока волна не закончилась, кнопка "Начать волну" НЕ работает
+    waveLocked: false,
     // === НОВОЕ: уникальный ID текущей сессии ===
     // Если браузер перезапущен — sessionId меняется, и мы точно знаем,
     // что сейв был записан ДО перезапуска.
@@ -2782,29 +2776,65 @@ let state = makeDefaultState();
     }
   }, 100);
 })();
-// === АНТИЧИТ ОТКЛЮЧЁН ===
-// Обёртки для внутренних изменений оставляем, чтобы не ломать остальной код
-window.__internalWrite = false;
-window.__setState = (key, value) => {
-  // Защита: разрешаем только известные ключи
-  if (typeof key !== 'string') return;
-  window.__internalWrite = true;
-  try { state[key] = value; } finally { window.__internalWrite = false; }
-};
-window.__incState = (key, delta) => {
-  if (typeof key !== 'string') return;
-  if (typeof delta !== 'number' || !isFinite(delta)) return;
-  window.__internalWrite = true;
-  try { state[key] = (state[key] || 0) + delta; } finally { window.__internalWrite = false; }
-};
-// Замораживаем, чтобы игрок не мог подменить сами обёртки
-try {
-  Object.defineProperty(window, '__setState', { writable: false, configurable: false });
-  Object.defineProperty(window, '__incState', { writable: false, configurable: false });
-} catch(e) {}
+// === БЕЗОПАСНЫЕ ОБЁРТКИ ДЛЯ STATE ===
+// Скрываем флаг записи через замыкание — из консоли его не подменить
+(function() {
+  let _iw = false;             // локальный флаг, недоступный снаружи
+  const INTERNAL_TOKEN = Symbol('token');
+
+  // Определяем геттер/сеттер для __internalWrite через замыкание
+  Object.defineProperty(window, '__internalWrite', {
+    get() { return _iw; },
+    set(v) {
+      // Просто устанавливаем значение — без arguments.callee (strict mode!)
+      _iw = !!v;
+    },
+    configurable: false,
+  });
+
+  // Единственный способ безопасно включить запись — вызвать эту функцию
+  const withInternalWrite = (fn) => {
+    const prev = _iw;
+    _iw = true;
+    try { return fn(); } finally { _iw = prev; }
+  };
+
+  window.__setState = (key, value) => {
+    if (typeof key !== 'string') return;
+    // Дополнительная валидация значений
+    if (typeof value === 'number' && !isFinite(value)) return;
+    if (key === 'gold' && (value < 0 || value > 1e18)) return;
+    if (key === 'crystals' && (value < 0 || value > 1e9)) return;
+    if (key === 'level' && (value < 1 || value > MAX_LEVEL)) return;
+    withInternalWrite(() => { state[key] = value; });
+  };
+
+  window.__incState = (key, delta) => {
+    if (typeof key !== 'string') return;
+    if (typeof delta !== 'number' || !isFinite(delta)) return;
+    // Валидация на выход за пределы
+    const cur = state[key] || 0;
+    const next = cur + delta;
+    if (key === 'gold' && (next < 0 || next > 1e18)) return;
+    if (key === 'crystals' && (next < 0 || next > 1e9)) return;
+    if (key === 'level' && (next < 1 || next > MAX_LEVEL)) return;
+    withInternalWrite(() => { state[key] = next; });
+  };
+
+  // Замораживаем обёртки
+  try {
+    Object.defineProperty(window, '__setState', { writable: false, configurable: false });
+    Object.defineProperty(window, '__incState', { writable: false, configurable: false });
+  } catch(e) {}
+})();
 // Уникальный ID сессии — генерируется заново при каждой загрузке страницы
 const SESSION_ID = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+const SAVE_KEY       = 'centralTower';
+const BACKUP_KEY_1   = 'centralTower_backup_1';
+const BACKUP_KEY_2   = 'centralTower_backup_2';
+const BACKUP_KEY_3   = 'centralTower_backup_3';
 
+let _idb = null;
 let enemies = [];
 let projectiles = [];
 let enemyProjectiles = [];
@@ -2900,83 +2930,95 @@ function cloneDeep(obj) {
   for (const k in obj) out[k] = cloneDeep(obj[k]);
   return out;
 }
-function loadSave() {
-  let parsed = null;
+/* ============ МИГРАЦИИ СЕЙВОВ ============ */
+function migrateSave(save, fromVersion) {
+  if (typeof fromVersion !== 'number') fromVersion = 0;
+
+  // Миграция с 0 на 1
+  if (fromVersion < 1) {
+    if (!save.defeatedBosses) save.defeatedBosses = [];
+    if (!save.mutationsUnlocked) save.mutationsUnlocked = false;
+    if (!save.mutations) save.mutations = {};
+    if (!save.ownedSkins) save.ownedSkins = { skin_default: true };
+    if (!save.activeSkin) save.activeSkin = 'skin_default';
+    if (!save.mgPos) save.mgPos = { x: null, y: null };
+    if (!save.flamePos) save.flamePos = { x: null, y: null };
+  }
+
+  // Миграция с 1 на 2 (на будущее)
+  if (fromVersion < 2) {
+    // Здесь будут изменения для версии 2
+  }
+
+  save.__saveVersion = SAVE_VERSION;
+  return save;
+}
+
+/* ============ ЗАГРУЗКА С ПРИОРИТЕТОМ ИСТОЧНИКОВ ============ */
+function loadEnhancedSave() {
+  let candidates = [];
+
+  // 1. Основной localStorage
   try {
-    const raw = localStorage.getItem('centralTower');
-    if (!raw) return;
-    parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) candidates.push({ source: 'localStorage', data: raw });
+  } catch(e) {}
 
-    const defaults = makeDefaultState();
-
-    window.__internalWrite = true;
+  // 2. Резервные бэкапы
+  for (const key of [BACKUP_KEY_1, BACKUP_KEY_2, BACKUP_KEY_3]) {
     try {
-      state = deepMerge(defaults, parsed);
+      const raw = localStorage.getItem(key);
+      if (raw) candidates.push({ source: key, data: raw });
+    } catch(e) {}
+  }
 
-      if (typeof state.gold !== 'number' || !isFinite(state.gold)) state.gold = 0;
-      if (typeof state.crystals !== 'number' || !isFinite(state.crystals)) window.__setState('crystals',0);
-      if (typeof state.wave !== 'number' || !isFinite(state.wave)) state.wave = 0;
-      if (typeof state.maxWaveReached !== 'number' || !isFinite(state.maxWaveReached)) state.maxWaveReached = 0;
-      if (typeof state.level !== 'number' || !isFinite(state.level)) state.level = 1;
-      if (typeof state.xp !== 'number' || !isFinite(state.xp)) state.xp = 0;
-      if (typeof state.kills !== 'number' || !isFinite(state.kills)) state.kills = 0;
-      if (typeof state.baseHp !== 'number' || !isFinite(state.baseHp)) state.baseHp = 100;
-      if (typeof state.shield !== 'number' || !isFinite(state.shield)) state.shield = 0;
-      if (typeof state.prestigeRank !== 'number') state.prestigeRank = 0;
+  // 3. sessionStorage
+  try {
+    const raw = sessionStorage.getItem(SAVE_KEY);
+    if (raw) candidates.push({ source: 'sessionStorage', data: raw });
+  } catch(e) {}
 
-      if (!Array.isArray(state.defeatedBosses)) state.defeatedBosses = [];
-
-      if (typeof state.upgrades !== 'object' || state.upgrades === null || Array.isArray(state.upgrades)) state.upgrades = {};
-      if (typeof state.prestigeUpgrades !== 'object' || state.prestigeUpgrades === null || Array.isArray(state.prestigeUpgrades)) state.prestigeUpgrades = {};
-      if (typeof state.mutations !== 'object' || state.mutations === null || Array.isArray(state.mutations)) state.mutations = {};
-      if (typeof state.ownedSkins !== 'object' || state.ownedSkins === null || Array.isArray(state.ownedSkins)) state.ownedSkins = { skin_default: true };
-      if (!state.ownedSkins.skin_default) state.ownedSkins.skin_default = true;
-      if (typeof state.levelBonuses !== 'object' || state.levelBonuses === null || Array.isArray(state.levelBonuses)) state.levelBonuses = defaults.levelBonuses;
-
-      if (state.flameUnlocked && (state.maxWaveReached || 0) < FLAME_UNLOCK_WAVE) {
-        state.flameUnlocked = false;
-        state.flameColor = 'orange';
+  // Выбираем самый свежий по lastSave
+  let best = null;
+  let bestTime = 0;
+  for (const c of candidates) {
+    try {
+      const parsed = JSON.parse(c.data);
+      if (parsed && typeof parsed === 'object') {
+        const t = parsed.lastSave || 0;
+        if (t > bestTime) {
+          bestTime = t;
+          best = { parsed, source: c.source };
+        }
       }
-      if (state.mgUnlocked && (state.maxWaveReached || 0) < MG_UNLOCK_WAVE) {
-        state.mgUnlocked = false;
+    } catch(e) {}
+  }
+
+  if (best) {
+    try {
+      const migrated = migrateSave(best.parsed, best.parsed.__saveVersion || 0);
+      window.__internalWrite = true;
+      try {
+        state = deepMerge(makeDefaultState(), migrated);
+      } finally {
+        window.__internalWrite = false;
       }
-
-      const hadInterruptedWave =
-        (state.interruptedWave !== null && state.interruptedWave !== undefined) ||
-        (state.waveInProgress === true);
-
-      if (hadInterruptedWave) {
-        const interruptedNum = (state.interruptedWave !== null && state.interruptedWave !== undefined)
-          ? state.interruptedWave
-          : state.wave;
-        state.wave = Math.max(0, interruptedNum - 1);
-        window.__setState('waveFailed', true);
-        state.currentWaveConfig = state.interruptedWaveConfig || null;
-        const stats = getTowerStats();
-        const sh = getShieldStats();
-        state.baseHp = stats.maxHp;
-        state.shield = sh.max;
-        window.__waveInterruptedRestored = {
-          wave: interruptedNum,
-          type: state.interruptedWaveType || 'normal',
-        };
-        window.__setState('waveFailed', true);
-        window.__setState('waveInProgress', false);
-      } else {
-        window.__setState('waveInProgress', false);
-      }
-
-      state.sessionId = SESSION_ID;
-      state.heartbeat = Date.now();
-
-      if (typeof state.__saveVersion !== 'number') state.__saveVersion = 0;
-      state.__saveVersion = SAVE_VERSION;
-    } finally {
-      window.__internalWrite = false;
+      // Перезаписываем основной сейв мигрированной версией
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
+    } catch(e) {
+      _error('Ошибка миграции:', e);
     }
-  } catch (e) {
-    console.error('❌ Ошибка загрузки сейва:', e);
+  } else {
+    // Пробуем загрузить из IndexedDB
+    loadFromIndexedDB((data) => {
+      if (!data) return;
+      try {
+        const parsed = JSON.parse(data);
+        const migrated = migrateSave(parsed, parsed.__saveVersion || 0);
+        window.__internalWrite = true;
+        try { state = deepMerge(makeDefaultState(), migrated); } finally { window.__internalWrite = false; }
+      } catch(e) {}
+    });
   }
 }
 // === ЗАЩИТА СЕЙВА ОТ ПОДМЕНЫ (контрольная сумма) ===
@@ -3039,7 +3081,10 @@ function loadSave() {
   } catch(e) {}
 })();
 
-loadSave();
+initIndexedDB();
+loadEnhancedSave();;
+
+/* ============ УЛУЧШЕННОЕ СОХРАНЕНИЕ С РОТАЦИЕЙ БЭКАПОВ ============ */
 
 function save() {
   try {
@@ -3056,25 +3101,72 @@ function save() {
     }
 
     const json = JSON.stringify(state);
-    localStorage.setItem('centralTower', json);
 
-    if (!state._lastBackup || Date.now() - state._lastBackup > 600000) {
-      window.__internalWrite = true;
-      try { state._lastBackup = Date.now(); } finally { window.__internalWrite = false; }
-      try {
-        localStorage.setItem('centralTower_backup', json);
-      } catch (e) {}
-    }
+    // === РОТАЦИЯ БЭКАПОВ ===
+    // Сдвигаем старые бэкапы: 2 → 3, 1 → 2, текущий → 1
+    try {
+      const old2 = localStorage.getItem(BACKUP_KEY_2);
+      if (old2) localStorage.setItem(BACKUP_KEY_3, old2);
+
+      const old1 = localStorage.getItem(BACKUP_KEY_1);
+      if (old1) localStorage.setItem(BACKUP_KEY_2, old1);
+
+      localStorage.setItem(BACKUP_KEY_1, json);
+    } catch(e) {}
+
+    // === ОСНОВНОЙ СЕЙВ ===
+    localStorage.setItem(SAVE_KEY, json);
+
+    // === РЕЗЕРВ В IndexedDB (если доступно) ===
+    saveToIndexedDB(json);
+
+    // === РЕЗЕРВ В sessionStorage ===
+    try { sessionStorage.setItem(SAVE_KEY, json); } catch(e) {}
+
   } catch (e) {
     _error('❌ Ошибка сохранения:', e);
+    // Аварийное сохранение без checksum
     try {
-      localStorage.removeItem('lastVersionSeen');
-      window.__internalWrite = true;
-      try { localStorage.setItem('centralTower', JSON.stringify(state)); } finally { window.__internalWrite = false; }
-    } catch (e2) {
-      _error('❌ Не удалось сохранить даже после очистки:', e2);
-    }
+      localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+    } catch(e2) {}
   }
+}
+
+/* === СОХРАНЕНИЕ В INDEXEDDB === */
+function initIndexedDB() {
+  if (!window.indexedDB) return;
+  try {
+    const request = indexedDB.open('pvo-game-db', 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('saves')) {
+        db.createObjectStore('saves', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = (e) => { _idb = e.target.result; };
+    request.onerror = () => { _idb = null; };
+  } catch(e) { _idb = null; }
+}
+function saveToIndexedDB(json) {
+  if (!_idb) return;
+  try {
+    const tx = _idb.transaction(['saves'], 'readwrite');
+    const store = tx.objectStore('saves');
+    store.put({ id: 'latest', data: json, time: Date.now() });
+  } catch(e) {}
+}
+function loadFromIndexedDB(callback) {
+  if (!_idb) { callback(null); return; }
+  try {
+    const tx = _idb.transaction(['saves'], 'readonly');
+    const store = tx.objectStore('saves');
+    const req = store.get('latest');
+    req.onsuccess = () => {
+      if (req.result && req.result.data) callback(req.result.data);
+      else callback(null);
+    };
+    req.onerror = () => callback(null);
+  } catch(e) { callback(null); }
 }
 
 /* ============ УТИЛИТЫ ============ */
@@ -3204,7 +3296,7 @@ function getTowerStats() {
     const baseMaxHp = Math.floor(UPGRADES.find(u => u.id === 'maxhp').effect(getLvl('maxhp')) * getLevelHpMult() * (1 + pr.hp) * (1 + mutHp));
   return {
     damage: UPGRADES.find(u => u.id === 'damage').effect(getLvl('damage')) * getLevelDamageMult() * (1 + pr.damage) * resonance * decay * (1 + mutDamage) * 2,
-    fireRate: UPGRADES.find(u => u.id === 'firerate').effect(getLvl('firerate')) * (1 + pr.firerate) * (1 + mutFirerate) * getLevelFireRateMult(),
+    fireRate: Math.max(0.5, UPGRADES.find(u => u.id === 'firerate').effect(getLvl('firerate')) * (1 + pr.firerate) * (1 + mutFirerate) * getLevelFireRateMult()),
     range: UPGRADES.find(u => u.id === 'range').effect(getLvl('range')),
     crit: Math.min(1, UPGRADES.find(u => u.id === 'crit').effect(getLvl('crit')) + pr.critBonus + mutCrit + getLevelCritBonus()),
     multishot: UPGRADES.find(u => u.id === 'multishot').effect(getLvl('multishot')),
@@ -3497,7 +3589,16 @@ function createMegaBoss(wave) {
 }
 
 function startMegaBossWave(isRetry = false) {
-  if (running) return;
+  // === ЯВНО ставим running = true (startWave уже мог его поставить) ===
+  running = true;
+
+  // === Сбрасываем «залипшие» блокировки, если волна не идёт ===
+  if (state.waveLocked && !state.waveInProgress) {
+    window.__internalWrite = true;
+    try { state.waveLocked = false; } finally { window.__internalWrite = false; }
+  }
+
+  // running уже установлен в startWave — не блокируем
   if (builderMode) {
     builderMode = false;
     builderSelected = null;
@@ -3524,6 +3625,13 @@ function startMegaBossWave(isRetry = false) {
   showBanner(`🐛 МЕГА-БОСС: РОБО ЧЕРВЬ (волна ${state.wave})`, 4000, true);
   SoundManager.playBossAppear();   // ← НОВОЕ
   render();
+window.__internalWrite = true;
+try {
+  state.waveInProgress = true;
+  state.waveLocked = true;
+} finally {
+  window.__internalWrite = false;
+}
   save();
 }
 
@@ -3791,7 +3899,14 @@ function createMageBoss(wave) {
   };
 }
 function startVerityBossWave(isRetry = false) {
-  if (running) return;
+  // === ЯВНО ставим running = true (startWave уже мог его поставить) ===
+  running = true;
+
+  // === Сбрасываем «залипшие» блокировки, если волна не идёт ===
+  if (state.waveLocked && !state.waveInProgress) {
+    window.__internalWrite = true;
+    try { state.waveLocked = false; } finally { window.__internalWrite = false; }
+  }
   if (builderMode) {
     builderMode = false;
     builderSelected = null;
@@ -3818,10 +3933,26 @@ function startVerityBossWave(isRetry = false) {
   showBanner(`😊 БОСС: ВЕРИТИ (волна ${state.wave})`, 4000, true);
   SoundManager.playBossAppear();   // ← НОВОЕ
   render();
+window.__internalWrite = true;
+try {
+  state.waveInProgress = true;
+  state.waveLocked = true;
+} finally {
+  window.__internalWrite = false;
+}
   save();
 }
 function startMageBossWave(isRetry = false) {
-  if (running) return;
+  // === ЯВНО ставим running = true (startWave уже мог его поставить) ===
+  running = true;
+
+  // === Сбрасываем «залипшие» блокировки, если волна не идёт ===
+  if (state.waveLocked && !state.waveInProgress) {
+    window.__internalWrite = true;
+    try { state.waveLocked = false; } finally { window.__internalWrite = false; }
+  }
+
+
   if (builderMode) {
     builderMode = false;
     builderSelected = null;
@@ -3843,6 +3974,13 @@ function startMageBossWave(isRetry = false) {
   state.interruptedWaveConfig = null;
   state.interruptedWaveType = 'pes';
   state.interruptedWaveStart = Date.now();
+window.__internalWrite = true;
+try {
+  state.waveInProgress = true;
+  state.waveLocked = true;
+} finally {
+  window.__internalWrite = false;
+}
   save();
 
   spawnQueue = [];
@@ -4044,16 +4182,17 @@ function updateVerityBoss(dt) {
   if (verityBoss.stage === 1) {
     verityBoss.spawnCooldown -= dt;
     if (verityBoss.spawnCooldown <= 0) {
-      verityBoss.spawnCooldown = 3.0;
+      verityBoss.spawnCooldown = 3.5;
       verityBoss.spawnAnimTimer = 0.6;
       const a = Math.random() * Math.PI * 2;
       const d = verityBoss.radius + 15;
-      const ballHp = Math.floor(verityBoss.maxHp * 0.15);
+      const ballHp = Math.floor(verityBoss.maxHp * VERITY_BALL_HP_PERCENT);
       enemies.push({
         x: verityBoss.x + Math.cos(a) * d,
         y: verityBoss.y + Math.sin(a) * d,
         hp: ballHp, maxHp: ballHp,
-        shield: ballHp * 3, shieldMax: ballHp * 3,
+        shield: Math.floor(ballHp * VERITY_BALL_SHIELD_MULT),
+        shieldMax: Math.floor(ballHp * VERITY_BALL_SHIELD_MULT),
         speed: 45,
         baseSpeed: 45,
         gold: 0, xp: 0,
@@ -4062,9 +4201,11 @@ function updateVerityBoss(dt) {
         isShield: true,
         radius: 14,
         angle: 0,
-        stopDistance: 0,
+        stopDistance: 30,
         hasStopped: false,
-        dmgMult: 1,
+        dmgMult: 2,
+        contactDamage: Math.floor(state.baseHp * 0.03), // урон при контакте (можно настроить)
+        attackCooldown: 1.5,   // как часто бьёт
       });
       addParticles(verityBoss.x + Math.cos(a) * d, verityBoss.y + Math.sin(a) * d, '#fde047', 15);
     }
@@ -4109,15 +4250,21 @@ function updateVerityBoss(dt) {
       enemies.push({
         x: verityBoss.x + Math.cos(a) * d,
         y: verityBoss.y + Math.sin(a) * d,
-        hp, maxHp: hp,
-        speed: 40 * 0.35, baseSpeed: 40 * 0.35,
-        gold: Math.floor(10 * Math.pow(1.10, state.wave - 1)) * 8,
-        xp: Math.floor(5 * Math.pow(1.15, state.wave - 1)) * 6,
-        type: 'necromancer', isNecromancer: true,
-        radius: 20, angle: 0, shootCooldown: 2.0, summonCooldown: 12.0,
-        stopDistance: Math.max(30, getTowerStats().range - 5),
+        hp: ballHp, maxHp: ballHp,
+        shield: ballHp * 3, shieldMax: ballHp * 3,
+        speed: 45,
+        baseSpeed: 45,
+        gold: 0, xp: 0,
+        type: 'verityBall',
+        isVerityBall: true,
+        isShield: true,
+        radius: 14,
+        angle: 0,
+        stopDistance: VERITY_BALL_STOP_DISTANCE,
         hasStopped: false,
-        dmgMult: getEnemyDamageScale(),
+        dmgMult: 1,
+        contactDamage: Math.floor(getTowerStats().maxHp * VERITY_BALL_DAMAGE_PERCENT),
+        attackCooldown: VERITY_BALL_ATTACK_COOLDOWN,
       });
       addParticles(verityBoss.x, verityBoss.y, '#7e22ce', 20);
     }
@@ -4381,7 +4528,7 @@ function getWaveConfig(wave) {
   // HP увеличено в 2 раза
   let hp = Math.floor(30 * Math.pow(1.18, wave - 1)) * 2;
   // Скорость фиксированная — не растёт с волнами
-  let speed = 40;
+  let speed = 60;
   const gold = Math.floor(10 * Math.pow(1.10, wave - 1));
   const xp = Math.floor(5 * Math.pow(1.15, wave - 1));
   const isBossWave = wave % 5 === 0;
@@ -4403,12 +4550,108 @@ function getWaveConfig(wave) {
   return { count, hp, speed, gold, xp, isBossWave, miniTankCount, necroCount, dmgMult };
 }
 function startWave(isRetry = false) {
-  if (running) return;
+  // ============================================================
+  // ✅ ГЛАВНЫЙ ФИКС: ЖЁСТКАЯ БЛОКИРОВКА
+  // Если волна была завершена вручную (waveFailed = true) и игрок
+  // не нажал «Повторить волну» — НИЧЕГО не запускаем.
+  // ============================================================
+  if (state.waveFailed && !isRetry) {
+    // Игрок пытается начать НОВУЮ волну, а предыдущая завершена вручную —
+    // это разрешено (кнопка «Начать волну»), но только если волна
+    // НЕ заблокирована.
+    if (state.waveLocked) {
+      showToast('⏹️ Волна завершена вручную. Нажми «Повторить волну».');
+      return;
+    }
+  }
+  // Если это автостарт (isRetry=false) и waveFailed = true — вообще не пускаем
+  // (автостарт после ручного завершения запрещён).
+  if (state.waveFailed && !isRetry && state.waveLocked) {
+    return;
+  }
+
+  // === ЖЁСТКАЯ БЛОКИРОВКА: если волна уже идёт или заблокирована — выходим ===
+  const actuallyRunning =
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+
+  if (state.waveLocked || state.waveInProgress) {
+    if (!actuallyRunning) {
+      // Флаги «залипли», но волна не идёт — сбрасываем
+      window.__internalWrite = true;
+      try {
+        state.waveLocked = false;
+        state.waveInProgress = false;
+        state.waveFailed = false;
+      } finally {
+        window.__internalWrite = false;
+      }
+      running = false;
+    } else {
+      showToast('⏳ Волна уже идёт! Дождись её окончания.');
+      return;
+    }
+  }
+
+  // === ФАКТИЧЕСКАЯ проверка ===
+  const reallyRunning =
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0) ||
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+
+  if (reallyRunning) {
+    showToast('⏳ Волна уже идёт! Дождись её окончания.');
+    return;
+  }
+
+  // ✅ ФИКС: устанавливаем running = true для обычных волн!
+  running = true;
+
+  // (дальше — старый код без изменений, начиная с блока
+  //  "=== НОВОЕ: принудительно закрываем 'залипшие' состояния ===")
+  running = true;
+
+  // === НОВОЕ: принудительно закрываем "залипшие" состояния ===
+  // Если игра считает, что волна в процессе, но по факту ничего нет — сбрасываем.
+  const nothingHappening =
+    (!spawnQueue || spawnQueue.length === 0) &&
+    (!necroSpawnQueue || necroSpawnQueue.length === 0) &&
+    (!enemies || enemies.length === 0) &&
+    (!barracks || barracks.length === 0) &&
+    (!megaBoss || !megaBoss.alive) &&
+    (!mageBoss || !mageBoss.alive) &&
+    (!verityBoss || !verityBoss.alive);
+
+  if (nothingHappening) {
+    if (state.waveInProgress) {
+      window.__internalWrite = true;
+      try { state.waveInProgress = false; } finally { window.__internalWrite = false; }
+    }
+    if (state.waveFailed) {
+      window.__internalWrite = true;
+      try { state.waveFailed = false; } finally { window.__internalWrite = false; }
+    }
+    // НЕ сбрасываем interruptedWave — он используется для показа баннера,
+    // но если игрок сам жмёт "Начать волну", значит он уже видел баннер.
+  }
+
+  // === ФИКС: сбрасываем таймер старта волны ===
+  waveStartTime = performance.now();
 
   // === НОВОЕ: СРАЗУ фиксируем факт старта волны ===
   // Это делается ДО всех проверок и модалок — чтобы даже если игрок
   // мгновенно нажмёт F5, сейв уже знал о начатой волне.
   state.waveInProgress = true;
+  state.waveLocked = true;   // ← ЖЁСТКАЯ БЛОКИРОВКА
   save();   // немедленно пишем в localStorage
 
   // === СТРАХОВКА: если огнемёт каким-то чудом оказался куплен до 26 волны — сбрасываем ===
@@ -4447,63 +4690,77 @@ function startWave(isRetry = false) {
 
   // Перед 5-й волной запускаем игровой автомат
   // (только при обычном старте, а не при повторе, и не во время показа других модалок)
-  if (!isRetry && nextWave % 5 === 0 && !state.activeDebuff && !gambleOpen && !levelUpModalOpen) {
+  // ВАЖНО: автомат должен появляться ТОЛЬКО перед волнами 5, 10, 15... и НЕ на первой волне.
+  if (!isRetry && nextWave > 1 && nextWave % 5 === 0 && !state.activeDebuff && !gambleOpen) {
+    // Закрываем возможные зависшие модалки, чтобы они не блокировали старт
+    if (levelUpModalOpen) {
+      levelUpModalOpen = false;
+      document.querySelectorAll('.levelup-modal').forEach(m => m.remove());
+    }
     openGambleModal();
     return;
   }
-      if (isRetry && state.currentWaveConfig) {
+
+  // === ФИКС: ПОВТОР волны НЕ увеличивает state.wave ===
+  if (isRetry) {
+    // При повторе — волна та же самая, конфиг пересоздаём (или восстанавливаем)
+    // state.wave НЕ увеличиваем!
+    if (!state.currentWaveConfig) {
+      // Если конфиг был утерян — создаём заново для ТЕКУЩЕЙ волны
+      state.currentWaveConfig = getWaveConfig(state.wave);
+    }
     state.waveFailed = false;
-    state.baseHp = getTowerStats().maxHp;  // восстановить HP
-    state.shield = getShieldStats().max;    // восстановить щит
+    state.baseHp = getTowerStats().maxHp;
+    state.shield = getShieldStats().max;
   } else {
+    // При новой волне — увеличиваем номер и создаём свежий конфиг
     state.wave++;
     state.currentWaveConfig = getWaveConfig(state.wave);
     state.waveFailed = false;
   }
 
-  // Полное восстановление HP и щита перед волной
-  const statsPre = getTowerStats();
-  const shPre = getShieldStats();
-  window.__setState('baseHp', statsPre.maxHp);
-  window.__setState('shield', shPre.max);
-  const hpTextEl = document.getElementById('hpText');
-  const hpFillEl = document.getElementById('hpFill');
-  const shieldTextEl = document.getElementById('shieldText');
-  const shieldFillEl = document.getElementById('shieldFill');
-  if (hpTextEl) hpTextEl.textContent = `${Math.ceil(state.baseHp)} / ${statsPre.maxHp}`;
-  if (hpFillEl) { hpFillEl.style.width = '100%'; hpFillEl.classList.remove('low', 'medium'); }
-  if (shieldTextEl) shieldTextEl.textContent = `${Math.ceil(state.shield)} / ${shPre.max}`;
-  if (shieldFillEl) shieldFillEl.style.width = '100%';
-  running = true;
-  waveEarned = 0;
-  waveStartTime = performance.now();
-  // === НОВОЕ: фиксируем факт старта боссовой волны ===
-  state.waveInProgress = true;
-  state.interruptedWave = state.wave;
-  state.interruptedWaveConfig = null;
-  state.interruptedWaveType = 'mega';   // или 'pes' / 'verity'
-  state.interruptedWaveStart = Date.now();
-  save();   // немедленная запись
-  const cfg = state.currentWaveConfig;
+  // === ФИКС: если конфиг всё ещё null (на всякий случай) ===
+  if (!state.currentWaveConfig) {
+    state.currentWaveConfig = getWaveConfig(state.wave);
+  }
+
+  // === ФИКС: ОБЪЯВЛЯЕМ cfg ЗДЕСЬ, один раз ===
+  let cfg = state.currentWaveConfig;
+  if (!cfg) {
+    cfg = getWaveConfig(state.wave);
+    state.currentWaveConfig = cfg;
+    save();
+  }
+
   spawnQueue = [];
 
   // === ФИКСИРУЕМ ПРЕРВАННУЮ ВОЛНУ ===
-  // Если игрок обновит страницу до конца волны — при следующей загрузке
-  // сейв покажет эту волну как "незавершённую", и мы заставим её переиграть.
-  state.interruptedWave = state.wave;
-  state.interruptedWaveConfig = cfg ? JSON.parse(JSON.stringify(cfg)) : null;
-  state.interruptedWaveType = 'normal';
-  state.interruptedWaveStart = Date.now();
-  save();   // сохраняем сразу, чтобы F5 не пропустил волну
-
-    for (let i = 0; i < cfg.count; i++) {
-    spawnQueue.push({ hp: cfg.hp, speed: cfg.speed / 1.25, gold: cfg.gold, xp: cfg.xp, type: 'drone' });
+  // Делаем это ДО спавна врагов, чтобы сейв успел записаться.
+  window.__internalWrite = true;
+  try {
+    state.interruptedWave = state.wave;
+    state.interruptedWaveConfig = cfg ? JSON.parse(JSON.stringify(cfg)) : null;
+    state.interruptedWaveType = 'normal';
+    state.interruptedWaveStart = Date.now();
+    // ВАЖНО: waveInProgress и waveLocked УЖЕ установлены выше.
+    // НЕ сбрасываем их здесь!
+  } finally {
+    window.__internalWrite = false;
   }
-    for (let i = 0; i < cfg.miniTankCount; i++) {
+  save();
+
+for (let i = 0; i < cfg.count; i++) {
+    spawnQueue.push({ hp: cfg.hp, speed: cfg.speed, gold: cfg.gold, xp: cfg.xp, type: 'drone' });
+  }
+  // === МИНИ-ТАНКИ (камикадзе) ===
+  for (let i = 0; i < cfg.miniTankCount; i++) {
     spawnQueue.push({
-      hp: cfg.hp * 4, speed: cfg.speed * 2.5 / 2,
-      gold: Math.floor(cfg.gold * 4), xp: Math.floor(cfg.xp * 4),
-      type: 'miniTank', explosionDamage: 30,
+      hp: Math.floor(cfg.hp * 0.5),
+      speed: cfg.speed * 1.3,
+      gold: cfg.gold * 2,
+      xp: cfg.xp * 2,
+      type: 'miniTank',
+      explosionDamage: Math.floor(cfg.hp * 0.5),
     });
   }
     // Фиксируем дальность атаки башни в момент старта волны
@@ -4522,6 +4779,10 @@ function startWave(isRetry = false) {
   // Определяем, сколько обычных врагов должно выйти до некромантов.
   // Берём половину обычной очереди (без некромантов).
   necroSpawnThreshold = Math.floor(spawnQueue.length / 2);
+// === ФИКС: если некромантов нет — очередь пуста, не ждём её ===
+if (necroSpawnQueue.length === 0) {
+  necroSpawnThreshold = 0;
+}
     if (cfg.isBossWave) {
     // Радиус остановки танка = базовый радиус обзора ПВО (без прокачек)
     const baseTowerRange = UPGRADES.find(u => u.id === 'range').effect(0);
@@ -4534,22 +4795,28 @@ function startWave(isRetry = false) {
   }
   spawnQueue.sort(() => Math.random() - 0.5);
   spawnTimer = 0;
+  towerState.cooldown = 0;
+  clickCooldown = 0;
+  flameCooldown = 0;
 
+// === МГНОВЕННЫЙ СПАВН ПЕРВЫХ ВРАГОВ ===
+// Спавним сразу 4 врага, чтобы волна чувствовалась
+for (let i = 0; i < 4 && spawnQueue.length > 0; i++) {
+  spawnEnemy(spawnQueue.shift());
+}
+spawnTimer = 0.15;   // следующий спавн — почти сразу
+
+const totalEnemies = cfg.count + (cfg.isBossWave ? 1 : 0) + cfg.miniTankCount + cfg.necroCount;
   if (state.wave >= BARRACKS_START_WAVE) {
     spawnBarracks();
-    showBanner(`🌊 Волна ${state.wave} — ${spawnQueue.length} целей + 🏰 бараки!`);
+    showBanner(`🌊 Волна ${state.wave} — ${totalEnemies} целей + 🏰 бараки!`);
   } else {
-    showBanner(`🌊 Волна ${state.wave} — ${spawnQueue.length} целей`);
+    showBanner(`🌊 Волна ${state.wave} — ${totalEnemies} целей`);
   }
   render();
   save();
-  updateBackgroundMusic();   // ← НОВОЕ
+  updateBackgroundMusic();
 }
-
-/* ============ КОНСТРУКТОР БАШЕН ============ */
-let builderMode = false;
-let builderSelected = null; // 'mg' или 'flame'
-let builderMoving = null;   // какая башня сейчас переносится (при перетаскивании)
 
 function toggleBuilder() {
   // === Нельзя пользоваться конструктором во время боя ===
@@ -4739,17 +5006,33 @@ function checkTowerPositions() {
 }
 /* ============ ЗАВЕРШЕНИЕ ВОЛНЫ ВРУЧНУЮ ============ */
 function finishWaveManually() {
-  if (!running) return;
-
-  const bossAlive = (megaBoss && megaBoss.alive) || (mageBoss && mageBoss.alive);
-
-  // Босса всё ещё нельзя пропустить
+  // Босса нельзя пропустить
+  const bossAlive = (megaBoss && megaBoss.alive) || (mageBoss && mageBoss.alive) || (verityBoss && verityBoss.alive);
   if (bossAlive) {
     showToast('❌ Нельзя завершить волну, пока жив босс!');
     return;
   }
 
-  // Уничтожаем всех оставшихся врагов без наград за них
+  // Проверяем, есть ли что завершать
+  const hasAnything =
+    running ||
+    state.waveInProgress ||
+    state.waveLocked ||
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && e.hp > 0)) ||
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0) ||
+    (Array.isArray(barracks) && barracks.length > 0);
+
+  if (!hasAnything) {
+    showToast('ℹ️ Волна уже завершена.');
+    return;
+  }
+
+  // ✅ Останавливаем игру ПЕРЕД очисткой
+  running = false;
+  state.waveInProgress = false;
+
+  // Очищаем поле
   for (const e of enemies) if (e) addParticles(e.x, e.y, '#f87171', 8);
   for (const b of barracks) if (b) addParticles(b.x, b.y, '#f87171', 12);
   for (const p of pits) if (p) addParticles(p.x, p.y, '#f87171', 10);
@@ -4757,61 +5040,106 @@ function finishWaveManually() {
 
   enemies = [];
   spawnQueue = [];
-  necroSpawnQueue = [];      // ← НОВОЕ
-  necroSpawnThreshold = 0;   // ← НОВОЕ
+  necroSpawnQueue = [];
+  necroSpawnThreshold = 0;
   barracks = [];
   pits = [];
   projectiles = [];
   enemyProjectiles = [];
-  pendingBigSkeletons = [];   // ← НОВОЕ: сбрасываем отложенных больших скелетов
-  necroDeathAnims = [];       // ← НОВОЕ: сбрасываем анимации смерти
-  handsAnims = [];            // ← НОВОЕ: сбрасываем анимации рук
+  pendingBigSkeletons = [];
+  necroDeathAnims = [];
+  handsAnims = [];
+  mgBullets = [];
+  xpOrbs = [];
 
-  // === Ручное завершение: помечаем волну как проваленную ===
-  // Восстанавливаем HP и щит
+  // Восстанавливаем HP/щит
   const statsAfter = getTowerStats();
   const shAfter = getShieldStats();
   window.__setState('baseHp', statsAfter.maxHp);
   window.__setState('shield', shAfter.max);
-
-  // Сбрасываем состояние боя
-  running = false;
-  // currentWaveConfig НЕ сбрасываем — он нужен для повтора волны
-  window.__setState('waveFailed', true);
-  window.__setState('waveInProgress', false);   // ← НОВОЕ: ручное завершение = не "в процессе"
   waveEarned = 0;
 
-  // === ВОЛНА ПРОВАЛЕНА — фиксируем её как "незавершённую" ===
-  // Чтобы перезагрузка не пропустила её.
-  state.interruptedWave = state.wave;
-  state.interruptedWaveConfig = state.currentWaveConfig
-    ? JSON.parse(JSON.stringify(state.currentWaveConfig))
-    : null;
-  state.interruptedWaveType =
-    isMegaBossWave(state.wave) ? 'mega' :
-    isPesBossWave(state.wave)  ? 'pes' :
-    isVerityBossWave(state.wave) ? 'verity' : 'normal';
-  state.interruptedWaveStart = Date.now();
+  // ✅ ЖЁСТКО выставляем флаги: волна завершена вручную
+  window.__internalWrite = true;
+  try {
+    state.waveInProgress = false;   // волна технически завершена
+    state.waveLocked = true;        // ЗАБЛОКИРОВАНО — автостарт не сработает
+    state.waveFailed = true;        // показываем «Повторить волну»
+    state.currentWaveConfig = null;
+    state.interruptedWave = null;
+    state.interruptedWaveConfig = null;
+    state.interruptedWaveType = null;
+    state.interruptedWaveStart = null;
+  } finally {
+    window.__internalWrite = false;
+  }
+
+  // ✅ Принудительно выключаем автозапуск на время
+  if (state.autoWave) {
+    window.__autoWaveWasOn = true;
+    window.__internalWrite = true;
+    try {
+      state.autoWave = false;
+    } finally {
+      window.__internalWrite = false;
+    }
+    const autoBtn = document.getElementById('autoWaveBtn');
+    if (autoBtn) {
+      autoBtn.textContent = '🔁 Авто: ВЫКЛ';
+      autoBtn.classList.remove('active');
+    }
+  }
+
+  // ✅ Сбрасываем таймер автостарта, чтобы он не выстрелил через 2 секунды
+  autoWaveTimer = 9999;
 
   // Скрываем кнопку «Завершить волну»
   const finishBtn = document.getElementById('finishWaveBtn');
-  if (finishBtn) finishBtn.style.display = 'none';
+  if (finishBtn) {
+    finishBtn.style.display = 'none';
+    finishBtn.disabled = true;
+  }
 
-  // Обновляем HUD
-  render();
+  if (typeof render === 'function') render();
   save();
 
   showBanner(`⏹️ Волна ${state.wave} завершена вручную. Нажми «Повторить волну».`, 3500, true);
   showToast(`💡 HP и щит восстановлены. Волна ${state.wave} остаётся активной.`);
 }
 function endWave() {
+  // ✅ СТРАХОВКА: если волна завершена ВРУЧНУЮ — endWave() не должен
+  // сбрасывать waveFailed/waveLocked. Выходим сразу.
+  if (state.waveFailed === true && state.waveLocked === true) {
+    return;
+  }
+  // === ФИКС: сначала очищаем ВСЁ, потом меняем state ===
   running = false;
-  state.currentWaveConfig = null;
-  state.waveFailed = false;
-  window.__setState('waveInProgress', false);   // ← НОВОЕ: волна успешно завершена
-  state.wavesCompleted++;
+  spawnQueue = [];
   necroSpawnQueue = [];
   necroSpawnThreshold = 0;
+  spawnTimer = 0;
+  // ✅ НОВОЕ: сбрасываем все «отложенные» и «анимационные» массивы,
+  // чтобы они не блокировали следующую волну
+  pendingBigSkeletons = [];
+  necroDeathAnims = [];
+  handsAnims = [];
+  pits = [];
+
+  window.__internalWrite = true;
+  try {
+    state.currentWaveConfig = null;
+    state.waveFailed = false;
+    state.waveInProgress = false;
+    state.waveLocked = false;   // ← ГЛАВНЫЙ ФИКС: снимаем блокировку!
+    state.wavesCompleted = (state.wavesCompleted || 0) + 1;
+    // Очищаем метки прерванной волны
+    state.interruptedWave = null;
+    state.interruptedWaveConfig = null;
+    state.interruptedWaveType = null;
+    state.interruptedWaveStart = null;
+  } finally {
+    window.__internalWrite = false;
+  }
 
   // === ВОЛНА УСПЕШНО ЗАВЕРШЕНА — очищаем флаг «прерванной» ===
   window.__setState('interruptedWave', null);
@@ -4824,9 +5152,14 @@ function endWave() {
     window.__setState('maxWaveReached', state.wave);
   }
 
-  // Скрываем кнопку «Завершить волну»
+  // ✅ ЖЁСТКО скрываем кнопку «Завершить волну»
   const finishBtn = document.getElementById('finishWaveBtn');
-  if (finishBtn) finishBtn.style.display = 'none';
+  if (finishBtn) {
+    finishBtn.style.display = 'none';
+    finishBtn.disabled = true;
+    finishBtn.textContent = '⏹️ Завершить волну';
+  }
+  screenShake = 15;
 
   // Полное восстановление HP и щита после волны
   const statsAfter = getTowerStats();
@@ -4861,9 +5194,19 @@ function endWave() {
       showToast(`💎 Кристаллы за этого босса уже получены ранее`);
     }
   }
-  showBanner(`🏆 Волна ${state.wave} отбита! +${format(total)} золота`, 3000, false, true);
-  if (earnedBonus > 0) showToast(`+${format(baseBonus)} базовый, +${format(earnedBonus)} (${(waveBonusPercent*100).toFixed(0)}% от волны)`);
-  else showToast(`+${format(baseBonus)} золота`);
+  showBanner(`🏆 Волна ${state.wave} отбита!`, 3000, false, true);
+  if (earnedBonus > 0) {
+    showToast(`+${format(baseBonus)} базовый, +${format(earnedBonus)} (${(waveBonusPercent*100).toFixed(0)}% от волны)`);
+    // Показываем баннер с общей суммой
+    setTimeout(() => {
+      showBanner(`💰 Итог: +${format(total)} золота (${format(baseBonus)} базовый + ${format(earnedBonus)} бонус)`, 4000, false, true);
+    }, 1000);
+  } else {
+    showToast(`+${format(baseBonus)} золота`);
+    setTimeout(() => {
+      showBanner(`💰 Итог: +${format(total)} золота`, 4000, false, true);
+    }, 1000);
+  }
   waveEarned = 0;
   render();
   save();
@@ -4892,7 +5235,7 @@ function spawnEnemy(data) {
   const dirIndex = Math.floor(Math.random() * SPAWN_DIRECTIONS);
   const baseAngle = (dirIndex / SPAWN_DIRECTIONS) * Math.PI * 2;
   const angle = baseAngle + (Math.random() - 0.5) * (Math.PI * 2 / SPAWN_DIRECTIONS) * 0.6;
-  const dist = Math.max(W, H) / 2 + 40;
+  const dist = Math.max(W, H) * 0.55;
   const x = CENTER.x + Math.cos(angle) * dist;
   const y = CENTER.y + Math.sin(angle) * dist;
   let radius = 12;
@@ -4921,6 +5264,7 @@ function spawnEnemy(data) {
     isZombie: data.type === 'zombie',
     isBarracksSoldier: data.type === 'barracksSoldier',
     isStoneGolem: data.type === 'stoneGolem',
+    isDrone: data.type === 'drone' || !data.type,
     radius,
     angle: 0,
     shootCooldown: data.shootCooldown || 2.0,
@@ -4940,7 +5284,7 @@ function spawnEnemy(data) {
   enemies.push(enemy);
 }
 function spawnProjectile(from, target) {
-  if (!from || !target || target.hp <= 0 || target.dealt) return;   // ← ЗАЩИТА
+  if (!from || !target || target.hp <= 0) return;
   const stats = getTowerStats();
   const dx = target.x - from.x, dy = target.y - from.y;
   const dist = Math.hypot(dx, dy);
@@ -5355,35 +5699,58 @@ function update(dt) {
   if (stats.regen > 0 && state.baseHp < stats.maxHp) {
     state.baseHp = Math.min(stats.maxHp, state.baseHp + stats.regen * dt);
   }
-  if (shieldRegenDelay > 0) shieldRegenDelay -= dt;
-  if (shieldRegenDelay <= 0 && shStats.regen > 0 && state.shield < shStats.max) {
-    state.shield = Math.min(shStats.max, state.shield + shStats.regen * dt);
+// === РЕГЕН ЩИТА ===
+if (shieldRegenDelay > 0) {
+  shieldRegenDelay -= dt;
+} else {
+  // Реген только когда щит НЕ на полной и прошла задержка после урона
+  if (shStats.regen > 0 && state.shield < shStats.max) {
+    // Дополнительно: не регеним, если идёт волна и враги уже рядом с ПВО
+    const enemyNear = enemies.some(e => {
+      if (!e || e.dealt || e.killed || e.hp <= 0) return false;
+      return Math.hypot(e.x - CENTER.x, e.y - CENTER.y) < shStats.delay * 30 + 100;
+    });
+    // Регеним всегда, но в бою — медленнее в 3 раза
+    const regenMult = running ? 0.33 : 1;
+    if (!enemyNear || !running) {
+      state.shield = Math.min(shStats.max, state.shield + shStats.regen * regenMult * dt);
+    }
   }
+}
 
 
   if (clickCooldown > 0) clickCooldown = Math.max(0, clickCooldown - dt);
 
-  if (running && spawnQueue.length > 0) {
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      spawnEnemy(spawnQueue.shift());
-      spawnTimer = 0.5;
-    }
+// === ФИКС: спавним врагов, даже если running=false, но очередь не пуста ===
+// НО только если волна действительно идёт (не после проигрыша).
+const waveActiveForSpawning = running || state.waveInProgress;
+if (spawnQueue.length > 0 && waveActiveForSpawning) {
+  spawnTimer -= dt;
+  let spawnedThisFrame = 0;
+  while (spawnTimer <= 0 && spawnQueue.length > 0 && spawnedThisFrame < 2) {
+    spawnEnemy(spawnQueue.shift());
+    spawnTimer += 0.25;
+    spawnedThisFrame++;
   }
+  if (spawnTimer < 0) spawnTimer = 0.25;
+}
 
   // === СПАВН НЕКРОМАНТОВ В СЕРЕДИНЕ ВОЛНЫ ===
   // Условие: обычная очередь уже опустошена минимум наполовину
   // и ещё есть некроманты, которых нужно заспавнить.
-  if (running && necroSpawnQueue.length > 0) {
-    // Если обычная очередь уже прошла порог — начинаем спавнить некромантов
-    const spawnedNormal = (state.currentWaveConfig ? state.currentWaveConfig.count + state.currentWaveConfig.miniTankCount : 0) - spawnQueue.length;
-    // Если у нас больше нет очереди (всё вышло) — тоже спавним некромантов
-    const thresholdReached = spawnQueue.length === 0 || spawnedNormal >= necroSpawnThreshold;
-    if (thresholdReached) {
-      // Некромантов спавним с той же задержкой, что и обычных — раз в 0.5 сек
-      spawnEnemy(necroSpawnQueue.shift());
+if (running && necroSpawnQueue.length > 0) {
+  const spawnedNormal = (state.currentWaveConfig ? state.currentWaveConfig.count + state.currentWaveConfig.miniTankCount : 0) - spawnQueue.length;
+  const thresholdReached = spawnQueue.length === 0 || spawnedNormal >= necroSpawnThreshold;
+  if (thresholdReached) {
+    // === ФИКС: защита от бесконечного ожидания ===
+    const necroData = necroSpawnQueue.shift();
+    if (necroData) {
+      spawnEnemy(necroData);
+    } else {
+      necroSpawnQueue = [];
     }
   }
+}
 
   if (megaBoss && megaBoss.alive) updateMegaBoss(dt);
   if (mageBoss && mageBoss.alive) updateMageBoss(dt);
@@ -5649,21 +6016,31 @@ if (e.isStoneGolem) {
       }
       continue;
     }
-    if (e.isVerityBall) {
-      const step = e.speed * dt;
-      e.x += (dx / dist) * step;
-      e.y += (dy / dist) * step;
-      if (dist < 40) {
-        if (!e.dealt) {
-          e.dealt = true;
-          // Шарик-щит ничего не делает при контакте, просто исчезает
-          addParticles(CENTER.x, CENTER.y, '#fde047', 15);
-          screenShake = 4;
+if (e.isVerityBall) {
+    const stopDist = e.stopDistance || VERITY_BALL_STOP_DISTANCE;
+
+    if (dist > stopDist) {
+        e.hasStopped = false;
+        const step = e.speed * dt;
+        const newDist = Math.max(stopDist, dist - step);
+        const angleToCenter = Math.atan2(CENTER.y - e.y, CENTER.x - e.x);
+        e.x = CENTER.x - Math.cos(angleToCenter) * newDist;
+        e.y = CENTER.y - Math.sin(angleToCenter) * newDist;
+    } else {
+        e.hasStopped = true;
+        if (!e.attackCooldown) e.attackCooldown = VERITY_BALL_ATTACK_COOLDOWN;
+        e.attackCooldown -= dt;
+        if (e.attackCooldown <= 0) {
+            e.attackCooldown = VERITY_BALL_ATTACK_COOLDOWN;
+            const dmg = e.contactDamage || Math.floor(getTowerStats().maxHp * VERITY_BALL_DAMAGE_PERCENT);
+            applyDamageToTower(dmg);
+            addParticles(CENTER.x, CENTER.y, '#fde047', 10);
+            addParticles(CENTER.x, CENTER.y, '#facc15', 6);
+            screenShake = 5;
         }
-        continue;
-      }
-      continue;
     }
+    continue;
+}
         const stopDist = e.stopDistance;
     if (dist > stopDist) {
       e.hasStopped = false;
@@ -5672,6 +6049,17 @@ if (e.isStoneGolem) {
       e.y += (dy / dist) * step;
     } else {
       e.hasStopped = true;
+
+      // === Обычный дрон: стоит и стреляет ===
+      if (e.isDrone && !e.isSkeleton && !e.isZombie && !e.isBarracksSoldier) {
+        e.shootCooldown -= dt;
+        if (e.shootCooldown <= 0) {
+          e.shootCooldown = 2.0;
+          spawnEnemyProjectile({ x: e.x, y: e.y }, 8, '#f87171', e.dmgMult || 1);
+          addParticles(e.x, e.y, '#f87171', 4);
+        }
+        continue;   // дрон не двигается дальше
+      }
 
       // === Большой скелет выкапывается — стоит и не двигается ===
       if (e.isBigSkeleton && e.emerging) {
@@ -5731,7 +6119,7 @@ if (e.isStoneGolem) {
     // === Контактный урон для всех, кто дошёл вплотную (танк, зомби, солдат) ===
     // Скелеты сюда уже не попадут — они обработаны выше
     if (dist < 40) {
-      if (!e.dealt && !e.isSkeleton) {
+      if (!e.dealt && !e.isSkeleton && !e.isDrone) {
         e.dealt = true;
         let dmg = e.isTank ? 40 : 12;
         if (e.isBarracksSoldier) dmg = 10;
@@ -5746,14 +6134,14 @@ if (e.isStoneGolem) {
 
   for (const k of newSkeletons) enemies.push(k);
 
-  towerState.cooldown -= dt;
-  const hasTargets = enemies.some(e => e.hp > 0 && !e.dealt);
-  const verityHasTargets = verityBoss && verityBoss.alive;
-  const mageHasTargets = mageBoss && mageBoss.alive;
-  const bossHasTargets = megaBoss && megaBoss.alive && megaBoss.parts.some(p => p.hp > 0);
-  const canFire = running && (hasTargets || bossHasTargets || mageHasTargets || verityHasTargets);
+towerState.cooldown -= dt;
 
-  if (canFire && towerState.cooldown <= 0) {
+// === ФИКС: стреляем, даже если running=false, но есть враги ===
+const hasAnyTargets = enemies.length > 0 || barracks.length > 0 ||
+  (megaBoss && megaBoss.alive) || (mageBoss && mageBoss.alive) ||
+  (verityBoss && verityBoss.alive);
+
+if (hasAnyTargets && towerState.cooldown <= 0) {
     let fired = false;
     // Приоритет: Верити
     if (verityBoss && verityBoss.alive && Math.hypot(verityBoss.x - CENTER.x, verityBoss.y - CENTER.y) <= stats.range) {
@@ -5782,9 +6170,11 @@ if (e.isStoneGolem) {
         fired = true;
       }
     }
-    if (!fired && hasTargets) {
+    // === ОБЫЧНЫЕ ВРАГИ: убран !e.dealt, добавлен запас радиуса ===
+    if (!fired) {
       const inRange = enemies
-        .filter(e => Math.hypot(e.x - CENTER.x, e.y - CENTER.y) <= stats.range && !e.dealt && e.hp > 0)
+        .filter(e => e && e.hp > 0 && !e.killed &&
+                     Math.hypot(e.x - CENTER.x, e.y - CENTER.y) <= stats.range + 5)
         .sort((a, b) => {
           const da = Math.hypot(a.x - CENTER.x, a.y - CENTER.y);
           const db = Math.hypot(b.x - CENTER.x, b.y - CENTER.y);
@@ -5794,7 +6184,7 @@ if (e.isStoneGolem) {
         const targets = inRange.slice(0, Math.min(stats.multishot, inRange.length));
         for (const target of targets) spawnProjectile({ x: CENTER.x, y: CENTER.y }, target);
         towerState.cooldown = 1 / stats.fireRate;
-        SoundManager.playShoot();   // ← НОВОЕ
+        SoundManager.playShoot();
         fired = true;
       }
     }
@@ -5819,7 +6209,6 @@ if (e.isStoneGolem) {
     if (!p) continue;   // ← ЗАЩИТА
     p.life -= dt;
     if (p.life <= 0) { p.dead = true; continue; }
-    if (!running) { p.dead = true; continue; }
     if (p.verityBoss && verityBoss && verityBoss.alive) {
       const dx = verityBoss.x - p.x, dy = verityBoss.y - p.y;
       const dist = Math.hypot(dx, dy);
@@ -6016,6 +6405,25 @@ for (const g of golemsToSplit) {
     });
     enemies = enemies.slice(0, MAX_ENEMIES);
   }
+  // ✅ ФИКС: перед удалением помечаем всех с hp<=0 как killed,
+  // чтобы счётчик и проверка конца волны работали корректно
+  for (const e of enemies) {
+    if (!e) continue;
+    if (e.hp <= 0 && !e.splitting && !e.killed) {
+      e.killed = true;
+      // Не начисляем ничего повторно (это просто страховка)
+    }
+  }
+
+  // ✅ ФИКС: перед удалением помечаем всех с hp <= 0 как killed/dealt,
+  // чтобы ни счётчик, ни endWave их не видели
+  for (const e of enemies) {
+    if (!e) continue;
+    if (e.hp <= 0 && !e.killed && !e.splitting) {
+      e.killed = true;
+      e.dealt = true;
+    }
+  }
   // Не удаляем голема, пока идёт анимация распада
   enemies = enemies.filter(e => e && (e.hp > 0 || e.splitting) && !e.dealt);
   projectiles = projectiles.filter(p => p && !p.dead);
@@ -6023,30 +6431,67 @@ for (const g of golemsToSplit) {
   particles = particles.filter(p => p && !p.dead);
   barracks = barracks.filter(b => b && b.hp > 0);   // ← ЗАЩИТА
 
-    if (running) {
-    if (megaBoss && megaBoss.alive) {
-      // ждём
-    } else if (mageBoss && mageBoss.alive) {
-      // ждём
-    } else if (verityBoss && verityBoss.alive) {
-      // ждём
-    } else if (
-      spawnQueue.length === 0 &&
-      necroSpawnQueue.length === 0 &&   // ← НОВОЕ
-      enemies.length === 0 &&
-      barracks.length === 0 &&
-      pits.length === 0 &&
-      // ← НОВОЕ: ждём, пока не заспавнятся отложенные большие скелеты
-      pendingBigSkeletons.length === 0 &&
-      // ← НОВОЕ: ждём, пока не отыграют анимации смерти некромантов
-      necroDeathAnims.length === 0 &&
-      // ← НОВОЕ: ждём, пока не отыграют анимации рук
-      handsAnims.length === 0
-    ) {
+// === ФИКС: завершаем волну, если все враги убиты и очереди пусты ===
+// УБРАНА проверка state.currentWaveConfig !== null — она ложно блокировала завершение.
+if (running) {
+  const bossAlive =
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+
+  // ✅ ЖИВЫЕ враги — те, кого ещё надо убить
+  const aliveEnemies = Array.isArray(enemies)
+    ? enemies.filter(e =>
+        e &&
+        !e.dealt &&
+        !e.killed &&
+        e.hp > 0
+      ).length
+    : 0;
+
+  // ✅ ФИКС: splitting-големы блокируют завершение, но не дольше 3 секунд
+  const splittingGolems = Array.isArray(enemies)
+    ? enemies.filter(e => e && e.splitting && !e.splitDone).length
+    : 0;
+
+  // ✅ ФИКС: убираем splitting из allClear — големы не должны блокировать
+  // завершение волны, если они уже мертвы (hp <= 0)
+  const allClear =
+    spawnQueue.length === 0 &&
+    necroSpawnQueue.length === 0 &&
+    aliveEnemies === 0 &&
+    barracks.length === 0;
+
+  // ✅ ЕСЛИ всё чисто — завершаем волну (минимум 1.0 сек после старта)
+  if (!bossAlive && allClear && (performance.now() - waveStartTime) > 1000) {
+    enemies = [];
+    clearBattleField();
+    endWave();
+  }
+  // ✅ СТРАХОВКА: если волна "залипла" больше 5 секунд и реальных врагов нет — чистим
+  else if (!bossAlive && (performance.now() - waveStartTime) > 5000) {
+    const reallyAlive = Array.isArray(enemies)
+      ? enemies.filter(e => e && !e.dealt && !e.killed && e.hp > 0).length
+      : 0;
+    const reallyBlocking =
+      reallyAlive > 0 ||
+      spawnQueue.length > 0 ||
+      necroSpawnQueue.length > 0 ||
+      barracks.length > 0;
+
+    if (!reallyBlocking) {
+      // Жёстко чистим ВСЁ
+      pendingBigSkeletons = [];
+      necroDeathAnims = [];
+      handsAnims = [];
+      pits = [];
+      enemies = [];
       clearBattleField();
       endWave();
     }
   }
+}
+
 }
 
 /* ============ ПУЛЕМЁТ — логика ============ */
@@ -6308,14 +6753,32 @@ function applyDamageToTower(dmg) {
   if (!isFinite(dmg) || dmg <= 0) return;
   // Уменьшаем весь урон по ПВО в 2 раза
   dmg = Math.floor(dmg / 2);
-  if (dmg > 0) SoundManager.playPlayerHit();   // ← НОВОЕ
+  if (dmg > 0) SoundManager.playPlayerHit();
+
+  // === ФИКС: сбрасываем задержку регена ТОЛЬКО если урон реально прошёл ===
   shieldRegenDelay = getShieldStats().delay;
+
+  // === ФИКС: сначала проверяем щит, потом HP ===
   if (state.shield > 0) {
     const absorbed = Math.min(state.shield, dmg);
-    window.__incState('shield', -absorbed);
-    dmg -= absorbed;
-    if (absorbed > 0) addParticles(CENTER.x, CENTER.y, '#67e8f9', 6);
+    if (absorbed > 0) {
+      window.__incState('shield', -absorbed);
+      dmg -= absorbed;
+      addParticles(CENTER.x, CENTER.y, '#67e8f9', 6);
+    }
   }
+  // === ФИКС: не даём щиту уйти в минус ===
+  if (state.shield < 0) {
+    window.__setState('shield', 0);
+  }
+  // Если щит только что обнулился — эффект
+  if (state.shield === 0 && absorbed > 0) {
+    addParticles(CENTER.x, CENTER.y, '#67e8f9', 20);
+    addParticles(CENTER.x, CENTER.y, '#06b6d4', 15);
+    screenShake = 8;
+    showToast('💥 Щит разрушен!');
+  }
+
   if (dmg > 0) {
     window.__incState('baseHp', -dmg);
     if (state.baseHp <= 0) {
@@ -6323,8 +6786,8 @@ function applyDamageToTower(dmg) {
       gameOver();
     }
   }
-  // ВАЖНО: убираем render() — он вызывается в loop и так, 30 раз в секунду.
-  // Раньше render() вызывался при каждом ударе — это и вешало игру.
+  // === ФИКС: обновляем HUD щита сразу ===
+  if (typeof updateHPShieldHud === 'function') updateHPShieldHud();
 }
 
 function hitEnemy(e, dmg, isCrit, isClick = false) {
@@ -6377,6 +6840,19 @@ function hitEnemy(e, dmg, isCrit, isClick = false) {
     if (e.isNecromancer) {
       triggerNecromancerDeath(e);
     }
+
+    // ✅ ФИКС: помечаем врага как "удалённого", чтобы он не висел в массиве.
+    // Большие големы НЕ помечаются dealt — они должны пройти анимацию
+    // распада и только потом удалиться.
+    if (!e.isStoneGolem || e.isSmallGolem) {
+      e.dealt = true;
+    }
+    // Для больших големов — отдельно помечаем, что они «убиты»,
+    // но не удалены (нужна анимация splitting)
+    if (e.isStoneGolem && !e.isSmallGolem) {
+      e.killed = true;
+      e.splitDone = false;   // ← важно: сбрасываем флаг
+    }
   }
 }
 
@@ -6406,7 +6882,8 @@ function addParticles(x, y, color, count) {
 
 function gameOver() {
   running = false;
-  window.__setState('waveInProgress', false);   // ← НОВОЕ: волна провалена, не "в процессе"
+  window.__setState('waveInProgress', false);
+  window.__setState('waveLocked', false);   // ← снимаем блокировку
   enemies = [];
   projectiles = [];
   enemyProjectiles = [];
@@ -6426,9 +6903,13 @@ function gameOver() {
   state.interruptedWaveType = null;
   state.interruptedWaveStart = null;
 
-  // Скрываем кнопку «Завершить волну»
+  // ✅ ЖЁСТКО скрываем кнопку «Завершить волну» и сбрасываем её состояние
   const finishBtn = document.getElementById('finishWaveBtn');
-  if (finishBtn) finishBtn.style.display = 'none';
+  if (finishBtn) {
+    finishBtn.style.display = 'none';
+    finishBtn.disabled = true;
+    finishBtn.textContent = '⏹️ Завершить волну';
+  }
   screenShake = 15;
   window.__setState('waveFailed', true);
   waveEarned = 0;
@@ -7175,36 +7656,219 @@ function drawPit(pit) {
 }
 function drawVerityBall(e) {
   const t = performance.now() / 1000;
-  const pulse = Math.sin(t * 4) * 0.5 + 0.5;
+
+  // === Базовые анимационные таймеры ===
+  const bob = Math.sin(t * 3.5 + e.x * 0.05) * 2.5;           // покачивание по Y
+  const breathe = 1 + Math.sin(t * 2.2 + e.y * 0.03) * 0.06;  // пульсация размера
+  const spin = Math.sin(t * 1.8 + e.x * 0.02) * 0.15;         // лёгкое вращение
+  const eyePulse = 0.7 + Math.sin(t * 5) * 0.3;               // свечение глаз
+  const attackPulse = e.hasStopped ? Math.sin(t * 8) * 0.5 + 0.5 : 0;
+  // Анимация «злости» — когда остановился и бьёт
+  const angerShake = e.hasStopped ? Math.sin(t * 30) * 0.6 : 0;
+
   ctx.save();
-  ctx.translate(e.x, e.y);
-  // Свечение
+  ctx.translate(e.x + angerShake, e.y - bob);
+  ctx.rotate(spin);
+
+  // ============================================
+  // === АУРА ВОКРУГ (пульсирующая) ===
+  // ============================================
   ctx.save();
-  ctx.shadowBlur = 15 + pulse * 10;
+  const auraR = e.radius * (1.6 + Math.sin(t * 4) * 0.15);
+  const auraGrad = safeRadialGradient(0, 0, e.radius * 0.5, 0, 0, auraR);
+  auraGrad.addColorStop(0, `rgba(253, 224, 71, ${0.35 + attackPulse * 0.35})`);
+  auraGrad.addColorStop(0.6, `rgba(251, 191, 36, ${0.15 + attackPulse * 0.15})`);
+  auraGrad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+  ctx.fillStyle = auraGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, auraR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // ============================================
+  // === ТЕНЬ ПОД ШАРИКОМ ===
+  // ============================================
+  ctx.save();
+  ctx.translate(0, bob + e.radius * 0.9);
+  const shadowGrad = safeRadialGradient(0, 0, 0.1, 0, 0, e.radius * 1.2);
+  shadowGrad.addColorStop(0, 'rgba(0,0,0,0.5)');
+  shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shadowGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, e.radius * 1.1, e.radius * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // ============================================
+  // === ОСНОВНОЕ ТЕЛО (с пульсацией) ===
+  // ============================================
+  ctx.save();
+  ctx.scale(breathe, breathe);
+
+  // Свечение (сильнее при атаке)
+  ctx.shadowBlur = 20 + attackPulse * 20;
   ctx.shadowColor = '#fde047';
-  // Шар
-  const grad = safeRadialGradient(-4, -4, 0.1, 0, 0, Math.max(0.1, e.radius));
+
+  // Тело — градиент
+  const grad = safeRadialGradient(-e.radius * 0.3, -e.radius * 0.3, 0.1, 0, 0, e.radius);
   grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.5, '#fde047');
+  grad.addColorStop(0.4, '#fef3c7');
+  grad.addColorStop(0.75, '#fde047');
   grad.addColorStop(1, '#ca8a04');
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(0, 0, e.radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
-  // Глаза
-  ctx.fillStyle = '#0a0a0a';
+  ctx.shadowBlur = 0;
+
+  // Обводка (становится ярче при атаке)
+  ctx.strokeStyle = e.hasStopped
+    ? `rgba(220, 38, 38, ${0.7 + attackPulse * 0.3})`
+    : `rgba(180, 83, 9, 0.85)`;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(-4, -2, 1.5, 0, Math.PI * 2);
-  ctx.arc(4, -2, 1.5, 0, Math.PI * 2);
-  ctx.fill();
-  // Улыбка
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(0, 2, 5, 0.2 * Math.PI, 0.8 * Math.PI);
+  ctx.arc(0, 0, e.radius, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
+
+  // Верхний блик
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.beginPath();
+  ctx.ellipse(-e.radius * 0.35, -e.radius * 0.4, e.radius * 0.28, e.radius * 0.15, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ============================================
+  // === ГЛАЗА (смотрят в сторону ПВО) ===
+  // ============================================
+  const lookAngle = Math.atan2(CENTER.y - e.y, CENTER.x - e.x);
+  const eyeShiftX = Math.cos(lookAngle) * 1.5;
+  const eyeShiftY = Math.sin(lookAngle) * 1.5;
+
+  // Белки
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(-4 + eyeShiftX * 0.5, -2 + eyeShiftY * 0.5, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(4 + eyeShiftX * 0.5, -2 + eyeShiftY * 0.5, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Зрачки (свечение)
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.9 + eyePulse * 0.1})`;
+  ctx.beginPath();
+  ctx.arc(-4 + eyeShiftX, -2 + eyeShiftY, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(4 + eyeShiftX, -2 + eyeShiftY, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Блики в глазах
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.beginPath();
+  ctx.arc(-4.5 + eyeShiftX, -2.8 + eyeShiftY, 0.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(3.5 + eyeShiftX, -2.8 + eyeShiftY, 0.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Брови (злые, когда атакует)
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  if (e.hasStopped) {
+    // Злые брови
+    ctx.beginPath();
+    ctx.moveTo(-7, -6);
+    ctx.lineTo(-2, -4);
+    ctx.moveTo(7, -6);
+    ctx.lineTo(2, -4);
+    ctx.stroke();
+  } else {
+    // Спокойные
+    ctx.beginPath();
+    ctx.moveTo(-7, -6);
+    ctx.lineTo(-2, -6);
+    ctx.moveTo(7, -6);
+    ctx.lineTo(2, -6);
+    ctx.stroke();
+  }
+
+  // ============================================
+  // === РОТ (улыбка → оскал при атаке) ===
+  // ============================================
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.lineWidth = 1.6;
+  if (e.hasStopped) {
+    // Злой оскал с зубами
+    ctx.beginPath();
+    ctx.arc(0, 2, 4.5, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    // Зубы
+    ctx.fillStyle = '#fef3c7';
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 1.6, 5);
+      ctx.lineTo(i * 1.6 + 0.8, 7.5);
+      ctx.lineTo(i * 1.6 - 0.8, 7.5);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else {
+    // Обычная улыбка
+    ctx.beginPath();
+    ctx.arc(0, 1, 4, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+  }
+
+  ctx.restore(); // конец body scale
+
+  // ============================================
+  // === ЩИТ (визуализация, если > 0) ===
+  // ============================================
+  if (e.shield > 0 && e.shieldMax > 0) {
+    const shieldPct = e.shield / e.shieldMax;
+    ctx.save();
+    const shieldR = e.radius + 4 + Math.sin(t * 6) * 1;
+    ctx.strokeStyle = `rgba(103, 232, 249, ${0.3 + shieldPct * 0.6})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(0, 0, shieldR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  ctx.restore(); // конец translate/rotate
+
+  // ============================================
+  // === ИНДИКАТОР АТАКИ (вокруг, вне поворота) ===
+  // ============================================
+  if (e.hasStopped) {
+    ctx.save();
+    // Пульсирующее кольцо
+    const ringPulse = Math.sin(t * 8) * 0.5 + 0.5;
+    ctx.strokeStyle = `rgba(253, 224, 71, ${0.4 + ringPulse * 0.5})`;
+    ctx.lineWidth = 2.5;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#fde047';
+    ctx.beginPath();
+    ctx.arc(e.x, e.y - bob, e.radius + 8 + ringPulse * 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Уголки «злости» (маленькие искры вокруг)
+    for (let i = 0; i < 4; i++) {
+      const a = t * 4 + (i / 4) * Math.PI * 2;
+      const dist = e.radius + 12;
+      const px = e.x + Math.cos(a) * dist;
+      const py = e.y - bob + Math.sin(a) * dist;
+      ctx.fillStyle = `rgba(251, 191, 36, ${0.5 + ringPulse * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 /* ============ КАМЕННЫЙ ГОЛЕМ ============ */
 function drawStoneGolem(e) {
@@ -11751,7 +12415,52 @@ function drawTower() {
 
 /* ============ UI ============ */
 const $ = id => document.getElementById(id);
+/* ============ ПОДСЧЁТ ОСТАВШИХСЯ ВРАГОВ НА ВОЛНЕ ============ */
+function getEnemiesLeft() {
+  // === Если волна не идёт — счётчик 0 ===
+  if (!running && !state.waveInProgress) return 0;
 
+  let total = 0;
+
+  // В очереди спавна (обычные + мини-танки + танк)
+  if (Array.isArray(spawnQueue)) total += spawnQueue.length;
+
+  // В очереди некромантов
+  if (Array.isArray(necroSpawnQueue)) total += necroSpawnQueue.length;
+
+  // Уже на карте — считаем только тех, кого можно убить
+  // ВАЖНО: враг считается живым ТОЛЬКО если hp > 0 И он не помечен dealt/killed
+  if (Array.isArray(enemies)) {
+    for (const e of enemies) {
+      if (!e) continue;
+      if (e.dealt || e.killed) continue;
+      if (e.hp <= 0) continue;   // ← было "e.hp <= 0 && !e.splitting"
+      total += 1;
+    }
+  }
+
+  // Бараки считаются целями
+  if (Array.isArray(barracks)) total += barracks.length;
+
+  // Ямы, из которых ещё вылезут големы
+  if (Array.isArray(pits)) {
+    for (const p of pits) {
+      if (p && !p.spawned) total += 2;
+    }
+  }
+
+  // Отложенные большие скелеты (ещё вылезут)
+  if (Array.isArray(pendingBigSkeletons)) {
+    total += pendingBigSkeletons.length;
+  }
+
+  // Боссы — считаем как 1 цель
+  if (megaBoss && megaBoss.alive) total += 1;
+  if (mageBoss && mageBoss.alive) total += 1;
+  if (verityBoss && verityBoss.alive) total += 1;
+
+  return total;
+}
 function updateHUDFast() {
   const stats = getTowerStats();
   const sh = getShieldStats();
@@ -11764,6 +12473,16 @@ function updateHUDFast() {
   if (crystalsEl) crystalsEl.textContent = state.crystals || 0;
   const waveEl = document.getElementById('waveNum');
   if (waveEl) waveEl.textContent = state.wave;
+  // === НОВОЕ: счётчик оставшихся врагов ===
+  const enemiesLeftEl = document.getElementById('enemiesLeft');
+  if (enemiesLeftEl) {
+    const left = getEnemiesLeft();
+    enemiesLeftEl.textContent = left;
+    // Меняем цвет в зависимости от количества
+    if (left === 0) enemiesLeftEl.style.color = '#4ade80';
+    else if (left <= 5) enemiesLeftEl.style.color = '#fbbf24';
+    else enemiesLeftEl.style.color = '#f87171';
+  }
   const killsEl = document.getElementById('kills');
   if (killsEl) killsEl.textContent = format(state.kills);
   const clickDmgEl = document.getElementById('clickDamageText');
@@ -11854,19 +12573,30 @@ function render() {
   $('gold').textContent = format(state.gold);
   $('crystalsHud').textContent = state.crystals || 0;
   $('waveNum').textContent = state.wave;
+  // === НОВОЕ: счётчик оставшихся врагов ===
+  const enemiesLeftEl2 = $('enemiesLeft');
+  if (enemiesLeftEl2) {
+    const left = getEnemiesLeft();
+    enemiesLeftEl2.textContent = left;
+    if (left === 0) enemiesLeftEl2.style.color = '#4ade80';
+    else if (left <= 5) enemiesLeftEl2.style.color = '#fbbf24';
+    else enemiesLeftEl2.style.color = '#f87171';
+  }
   $('kills').textContent = format(state.kills);
   $('clickDamageText').textContent = format(Math.floor(cs.damage * (1 + pr.clickDamage)));
   $('prestigeRank').textContent = `${state.prestigeRank} / ${MAX_PRESTIGE}`;
 
     // Если идёт поражение — визуально показываем max HP и щит в HUD, но не трогаем state
-  if (state.waveFailed) {
-    $('hpText').textContent = `${stats.maxHp} / ${stats.maxHp}`;
-    const hpFill = $('hpFill');
-    hpFill.style.width = '100%';
-    hpFill.classList.remove('low', 'medium');
-    $('shieldText').textContent = `${sh.max} / ${sh.max}`;
-    $('shieldFill').style.width = '100%';
-  } else {
+if (state.waveFailed) {
+  $('hpText').textContent = `${stats.maxHp} / ${stats.maxHp}`;
+  const hpFill = $('hpFill');
+  hpFill.style.width = '100%';
+  hpFill.classList.remove('low', 'medium');
+  $('shieldText').textContent = `${sh.max} / ${sh.max}`;
+  const shieldFill = $('shieldFill');
+  shieldFill.style.width = '100%';
+  // === ФИКС: визуально показываем полный щит, но НЕ трогаем state.shield ===
+} else {
     const hpCur = Math.max(0, Math.ceil(state.baseHp));
     const hpMax = stats.maxHp;
     $('hpText').textContent = `${hpCur} / ${hpMax}`;
@@ -11912,24 +12642,69 @@ function render() {
   const nextIsMega = isMegaBossWave(nextWaveNum);
   const nextIsPes = isPesBossWave(nextWaveNum);
 
-  if (running) {
-    // === Во время боя ===
+  // === НОВОЕ: определяем, идёт ли волна ФАКТИЧЕСКИ ===
+  const hasLivingEnemies =
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+  const hasQueuedEnemies =
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0);
+
+  // ✅ ФИКС: если реально ничего не происходит — принудительно сбрасываем флаги,
+  // чтобы кнопка «Начать волну» работала корректно.
+  if (!running && !hasLivingEnemies && !hasQueuedEnemies) {
+    if (state.waveInProgress || state.waveLocked) {
+      window.__internalWrite = true;
+      try {
+        state.waveInProgress = false;
+        state.waveLocked = false;
+      } finally {
+        window.__internalWrite = false;
+      }
+    }
+  }
+
+  const waveReallyRunning = running || state.waveInProgress || state.waveLocked || hasLivingEnemies || hasQueuedEnemies;
+
+  if (waveReallyRunning) {
+    // === Во время боя ИЛИ волна реально идёт ===
     btn.disabled = true;
     btn.classList.remove('retry', 'mega', 'pes');
     if (megaBoss && megaBoss.alive) btn.textContent = `⚔️ МЕГА-БОСС идёт...`;
     else if (mageBoss && mageBoss.alive) btn.textContent = `⚔️ МАГ идёт...`;
-    else btn.textContent = `⚔️ Волна ${state.wave} идёт... (${enemies.length + spawnQueue.length + necroSpawnQueue.length})`;
+    else if (verityBoss && verityBoss.alive) btn.textContent = `⚔️ ВЕРИТИ идёт...`;
+    else btn.textContent = `⚔️ Волна ${state.wave} идёт...`;
     btn.style.display = 'inline-block';
 
     // Кнопка «Повторить» скрыта во время боя
     if (retryBtn) retryBtn.style.display = 'none';
 
-    // Кнопка «Завершить волну» видна только если босс не жив
+    // === КНОПКА «ЗАВЕРШИТЬ ВОЛНУ» ===
+    // Показываем, если волна идёт и босс мёртв.
+    // Не требуем наличия живых врагов, чтобы кнопка не мигала между спавнами.
+    const bossAlive =
+      (megaBoss && megaBoss.alive) ||
+      (mageBoss && mageBoss.alive) ||
+      (verityBoss && verityBoss.alive);
+
+    // Реально ли идёт волна
+    const waveIsActive =
+      running ||
+      state.waveInProgress ||
+      state.waveLocked;
+
     if (finishBtn) {
-      const bossAlive = (megaBoss && megaBoss.alive) || (mageBoss && mageBoss.alive);
-      finishBtn.style.display = bossAlive ? 'none' : 'inline-block';
+      if (waveIsActive && !bossAlive) {
+        finishBtn.style.display = 'inline-block';
+        finishBtn.disabled = false;
+      } else {
+        finishBtn.style.display = 'none';
+      }
     }
-    } else if (state.waveFailed) {
+  } else if (state.waveFailed) {
     // === Игрок проиграл волну ===
     // Кнопка «Начать волну» полностью скрыта — доступна только «Повторить»
     btn.style.display = 'none';
@@ -11945,18 +12720,16 @@ function render() {
     }
 
     if (finishBtn) finishBtn.style.display = 'none';
-  } else if (state.interruptedWave !== null && state.interruptedWave !== undefined && state.interruptedWave === state.wave + 1) {
-    // === СТРАХОВКА: волна помечена как прерванная ===
-    btn.style.display = 'none';
-    if (retryBtn) {
-      retryBtn.style.display = 'inline-block';
-      retryBtn.disabled = false;
-      retryBtn.textContent = `🔁 Повторить волну ${state.interruptedWave}`;
-    }
-    if (finishBtn) finishBtn.style.display = 'none';
-  } else {
+ } else {
     // === Свободное время, можно начать следующую ===
-    if (retryBtn) retryBtn.style.display = 'none';
+    // Сюда мы попадаем, если волна НЕ провалена (waveFailed = false).
+    // Это может быть:
+    // 1. Обычная ситуация между волнами.
+    // 2. Ситуация, когда игрок выбрал волну вручную в списке.
+    // 3. Ситуация, когда волна была прервана перезагрузкой, но игрок еще не нажал "Повторить".
+    // Во всех этих случаях показываем кнопку "Начать волну".
+
+    if (retryBtn) retryBtn.style.display = 'none'; // Прячем кнопку "Повторить"
     if (finishBtn) finishBtn.style.display = 'none';
 
     btn.disabled = false;
@@ -11964,9 +12737,17 @@ function render() {
     btn.classList.toggle('mega', nextIsMega);
     btn.classList.toggle('pes', nextIsPes);
     btn.style.display = 'inline-block';
-    if (nextIsMega) btn.textContent = `🐛 ВОЛНА ${nextWaveNum}: РОБО ЧЕРВЬ!`;
-    else if (nextIsPes) btn.textContent = `🧙 ВОЛНА ${nextWaveNum}: МАГ!`;
-    else btn.textContent = `▶️ Начать волну ${nextWaveNum}`;
+
+    // Определяем, какую волну запускать: следующую или ту, что была прервана
+    let waveToStart = nextWaveNum;
+    if (state.interruptedWave !== null && state.interruptedWave !== undefined) {
+      // Если есть прерванная волна, предлагаем начать именно её
+      waveToStart = state.interruptedWave;
+    }
+
+    if (isMegaBossWave(waveToStart)) btn.textContent = `🐛 ВОЛНА ${waveToStart}: РОБО ЧЕРВЬ!`;
+    else if (isPesBossWave(waveToStart)) btn.textContent = `🧙 ВОЛНА ${waveToStart}: МАГ!`;
+    else btn.textContent = `▶️ Начать волну ${waveToStart}`;
   }
 
   updateMegaBossHud();
@@ -11995,8 +12776,12 @@ function applyBossDeathPenalty() {
   window.__internalWrite = true;
   try {
     state.wave = targetWave;
+    // ✅ НЕ обнуляем currentWaveConfig — он будет пересоздан при повторе
+    // либо восстановлен из сейва.
+    // ✅ НО: если это откат на другую волну, конфиг старой волны нам НЕ подходит,
+    // поэтому очищаем — при повторе он будет создан заново для targetWave.
     state.currentWaveConfig = null;
-    state.waveFailed = false;
+    state.waveFailed = true;   // ← показываем «Повторить»
     window.__setState('interruptedWave', null);
     state.interruptedWaveConfig = null;
     state.interruptedWaveType = null;
@@ -12127,24 +12912,36 @@ function renderWavesModal() {
     // Текущая волна
     if (w === state.wave + 1 || w === state.wave) btn.classList.add('current');
 
-    btn.onclick = () => {
-      if (running || state.waveInProgress) {
-        showToast('❌ Нельзя менять волну во время боя!');
-        return;
-      }
-      // Ставим игрока на выбранную волну - 1, чтобы startWave начал с неё
-      state.wave = w - 1;
-      state.waveFailed = false;
-      state.currentWaveConfig = null;
-      state.baseHp = getTowerStats().maxHp;
-      state.shield = getShieldStats().max;
-      $('wavesModal').classList.add('hidden');
-      showToast(`🌊 Волна установлена: ${w}`);
-      render();
-      save();
-      // Запускаем волну
-      startWave(false);
-    };
+btn.onclick = () => {
+  if (running || state.waveInProgress || state.waveLocked) {
+    showToast('❌ Нельзя менять волну во время боя!');
+    return;
+  }
+  // Ставим игрока на выбранную волну - 1, чтобы startWave начал с неё
+  // (startWave сделает state.wave++ и получит нужную волну)
+  state.wave = w - 1;
+  state.waveFailed = false;
+  state.currentWaveConfig = null;
+  state.baseHp = getTowerStats().maxHp;
+  state.shield = getShieldStats().max;
+  // Сбрасываем прерванную волну — игрок сам выбрал, что играть
+  window.__internalWrite = true;
+  try {
+    state.interruptedWave = null;
+    state.interruptedWaveConfig = null;
+    state.interruptedWaveType = null;
+    state.interruptedWaveStart = null;
+    state.waveInProgress = false;
+    state.waveLocked = false;
+  } finally {
+    window.__internalWrite = false;
+  }
+  $('wavesModal').classList.add('hidden');
+  showToast(`🌊 Волна установлена: ${w}. Нажми «Начать волну».`);
+  render();
+  save();
+  // НЕ запускаем волну — игрок сам нажмёт «Начать волну»
+};
 
     // Если волна выше maxWaveReached — блокируем
     if (w > maxWave + 1) {
@@ -12697,19 +13494,20 @@ function updateHPShieldHud() {
     else if (hpPct < 50) hpFill.classList.add('medium');
   }
 
-  // === Щит ===
-  const shieldMax = Math.floor(sh.max);
-  const shieldCur = state.shield >= sh.max
-    ? shieldMax
-    : Math.max(0, Math.floor(state.shield));
-  const shieldText = document.getElementById('shieldText');
-  if (shieldText) shieldText.textContent = `${shieldCur} / ${shieldMax}`;
-  const shieldFill = document.getElementById('shieldFill');
-  if (shieldFill) {
-    const shieldPct = sh.max > 0 ? Math.max(0, Math.min(100, (state.shield / sh.max) * 100)) : 0;
-    shieldFill.style.width = shieldPct + '%';
-  }
+// === ЩИТ ===
+const shieldMax = Math.max(1, Math.floor(sh.max) || 1);
+const shieldCur = state.shield >= sh.max
+  ? shieldMax
+  : Math.max(0, Math.floor(state.shield) || 0);
+const shieldText = document.getElementById('shieldText');
+if (shieldText) shieldText.textContent = `${shieldCur} / ${shieldMax}`;
+const shieldFill = document.getElementById('shieldFill');
+if (shieldFill) {
+  const shieldPct = Math.max(0, Math.min(100, (state.shield / shieldMax) * 100));
+  shieldFill.style.width = shieldPct + '%';
 }
+}  // ← ЗАКРЫВАЮЩАЯ СКОБКА ФУНКЦИИ updateHPShieldHud
+
 function renderStats() {
   const s = getTowerStats();
   const sh = getShieldStats();
@@ -12990,10 +13788,20 @@ function buyUpgrade(up) {
     applyRandomMutation();
   }
 
-  if (up.id === 'maxhp') state.baseHp += 200;
-  if (up.id === 'shield_max') state.shield = getShieldStats().max;
-  syncMaxHp();
-  syncMaxShield();
+if (up.id === 'maxhp') {
+  const oldMax = getTowerStats().maxHp;
+  // ... (эта строка уже есть, оставь как было)
+}
+if (up.id === 'shield_max') {
+  // При покупке сразу выставляем щит на максимум
+  state.shield = getShieldStats().max;
+}
+syncMaxHp();
+syncMaxShield();
+// === ДОПОЛНИТЕЛЬНО: обновляем shield до max, если он ниже ===
+const shNow = getShieldStats();
+if (state.shield > shNow.max) state.shield = shNow.max;
+if (state.shield < 0) state.shield = 0;
   render();
   save();
   showToast(`🔧 ${up.name} → ур. ${lvl + 1}`);
@@ -13232,20 +14040,49 @@ $('settingsBtn').addEventListener('click', () => {
   $('volMusicVal').textContent = vMusic + '%';
   $('volSfxVal').textContent = vSfx + '%';
 });
-$('settingsBackupBtn').addEventListener('click', () => {
-  const backup = localStorage.getItem('centralTower_backup');
-  if (!backup) {
-    showToast('❌ Бэкап не найден');
-    return;
-  }
-  if (!confirm('⚠️ Восстановить сейв из бэкапа? Текущий прогресс будет потерян!')) return;
+// (Кнопка settingsBackupBtn удалена — вместо неё используются exportSaveBtn и importSaveBtn)
+// Если хотите оставить — добавьте в HTML:
+// <button class="settings-close" id="settingsBackupBtn">💾 Восстановить из бэкапа</button>
+// === ЭКСПОРТ/ИМПОРТ СЕЙВА ===
+$('exportSaveBtn').addEventListener('click', () => {
   try {
-    localStorage.setItem('centralTower', backup);
-    showToast('💾 Сейв восстановлен! Перезагрузка...');
-    setTimeout(() => location.reload(), 800);
-  } catch (e) {
-    showToast('❌ Не удалось восстановить');
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pvo-save-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('📥 Сейв скачан!');
+  } catch(e) {
+    showToast('❌ Не удалось скачать сейв');
   }
+});
+
+$('importSaveBtn').addEventListener('click', () => {
+  $('importSaveInput').click();
+});
+
+$('importSaveInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      if (!parsed || typeof parsed !== 'object') throw new Error('Invalid save');
+      if (!confirm('⚠️ Загрузить этот сейв? Текущий прогресс будет перезаписан!')) return;
+      const migrated = migrateSave(parsed, parsed.__saveVersion || 0);
+      window.__internalWrite = true;
+      try { state = deepMerge(makeDefaultState(), migrated); } finally { window.__internalWrite = false; }
+      save();
+      location.reload();
+    } catch(err) {
+      showToast('❌ Неверный файл сейва');
+    }
+  };
+  reader.readAsText(file);
 });
 $('settingsCloseBtn').addEventListener('click', () => {
   $('settingsModal').classList.add('hidden');
@@ -13298,15 +14135,119 @@ $('inventoryModal').addEventListener('click', (e) => {
 });
 
 $('startWaveBtn').addEventListener('click', () => {
-  if (running) return;
-  if (state.waveFailed) return;  // при провале не запускаем новую, только «Повторить»
+  SoundManager.unlock();
+
+  // === ЖЁСТКАЯ БЛОКИРОВКА: волна уже идёт ===
+  // Проверяем не только флаги, но и фактическое наличие врагов/очередей.
+  const hasLivingEnemies =
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+  const hasQueuedEnemies =
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0);
+
+  if (running || state.waveInProgress || state.waveLocked || hasLivingEnemies || hasQueuedEnemies) {
+    showToast('⏳ Волна уже идёт! Дождись её окончания.');
+    return;
+  }
+
+  // Сбрасываем флаги, мешающие старту
+  window.__internalWrite = true;
+  try {
+    state.waveFailed = false;
+    state.waveInProgress = false;
+    state.waveLocked = false;
+    state.interruptedWave = null;
+    state.interruptedWaveConfig = null;
+    state.interruptedWaveType = null;
+    state.interruptedWaveStart = null;
+  } finally {
+    window.__internalWrite = false;
+  }
+  running = false;
+
+  if (levelUpModalOpen) {
+    levelUpModalOpen = false;
+    document.querySelectorAll('.levelup-modal').forEach(m => m.remove());
+  }
+  if (gambleOpen) gambleOpen = false;
+  // ✅ Возвращаем автостарт, если он был отключён ручным завершением
+  if (window.__autoWaveWasOn) {
+    state.autoWave = true;
+    window.__autoWaveWasOn = false;
+    const autoBtn = document.getElementById('autoWaveBtn');
+    if (autoBtn) {
+      autoBtn.textContent = '🔁 Авто: ВКЛ';
+      autoBtn.classList.add('active');
+    }
+  }
   startWave(false);
 });
 
 $('retryWaveBtn').addEventListener('click', () => {
-  if (running) return;
-  if (state.waveFailed) startWave(true);
+  SoundManager.unlock();
+
+  // === ЖЁСТКАЯ БЛОКИРОВКА ===
+  const hasLivingEnemies =
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+  const hasQueuedEnemies =
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0);
+
+  if (running || state.waveInProgress || hasLivingEnemies || hasQueuedEnemies) {
+    showToast('⏳ Волна уже идёт! Дождись её окончания.');
+    return;
+  }
+
+  // ✅ Снимаем ВСЕ блокировки перед повтором волны
+  window.__internalWrite = true;
+  try {
+    state.waveFailed = false;
+    state.waveInProgress = false;
+    state.waveLocked = false;
+    state.interruptedWave = null;
+    state.interruptedWaveConfig = null;
+    state.interruptedWaveType = null;
+    state.interruptedWaveStart = null;
+
+    // ✅ НОВОЕ: ВОССТАНАВЛИВАЕМ конфиг для ТЕКУЩЕЙ волны,
+    // чтобы startWave(true) не сделал state.wave++
+    if (!state.currentWaveConfig) {
+      state.currentWaveConfig = getWaveConfig(state.wave);
+    }
+
+    // Возвращаем автостарт, если он был отключён
+    if (window.__autoWaveWasOn) {
+      state.autoWave = true;
+      window.__autoWaveWasOn = false;
+      const autoBtn = document.getElementById('autoWaveBtn');
+      if (autoBtn) {
+        autoBtn.textContent = '🔁 Авто: ВКЛ';
+        autoBtn.classList.add('active');
+      }
+    }
+  } finally {
+    window.__internalWrite = false;
+  }
+  running = false;
+  autoWaveTimer = 2.0;
+
+  if (levelUpModalOpen) {
+    levelUpModalOpen = false;
+    document.querySelectorAll('.levelup-modal').forEach(m => m.remove());
+  }
+  if (gambleOpen) gambleOpen = false;
+
+  startWave(true);
 });
+
 $('autoWaveBtn').addEventListener('click', () => {
   state.autoWave = !state.autoWave;
   const btn = $('autoWaveBtn');
@@ -13519,6 +14460,11 @@ function loop(now) {
   const dt = Math.min((now - lastFrame) / 1000, 0.1);
   lastFrame = now;
 
+  // === СТРАХОВКА ОТКЛЮЧЕНА: она ложно срабатывала сразу после старта волны,
+  // когда spawnQueue ещё пуст (спавн идёт с задержкой). ===
+  // Правильная проверка конца волны — в конце update() (по всем условиям).
+  window.__runIdleSince = 0;
+
   try {
     update(dt);
   } catch (err) {
@@ -13537,25 +14483,35 @@ function loop(now) {
     _error('❌ Music error:', err);
   }
 
-  // Автозапуск следующей волны
-  // === НОВОЕ: не запускаем авто, если волна была прервана перезагрузкой ===
+  // === АВТОЗАПУСК ===
+  // НЕ запускаем авто, если waveFailed = true (ручное завершение или проигрыш).
   const interrupted = (state.interruptedWave !== null && state.interruptedWave !== undefined);
+  const autoHasEnemies =
+    (Array.isArray(enemies) && enemies.some(e => e && !e.dealt && !e.killed && (e.hp > 0 || e.splitting))) ||
+    (Array.isArray(barracks) && barracks.length > 0) ||
+    (Array.isArray(spawnQueue) && spawnQueue.length > 0) ||
+    (Array.isArray(necroSpawnQueue) && necroSpawnQueue.length > 0) ||
+    (megaBoss && megaBoss.alive) ||
+    (mageBoss && mageBoss.alive) ||
+    (verityBoss && verityBoss.alive);
+
   if (
     state.autoWave &&
     !running &&
+    !state.waveInProgress &&
+    !state.waveLocked &&
+    !state.waveFailed &&          // ← КЛЮЧЕВОЕ: не автостартуем после ручного завершения
+    !autoHasEnemies &&
     !levelUpModalOpen &&
-    !interrupted &&                                        // ← НОВОЕ
+    !interrupted &&
+    !gambleOpen &&
     !document.querySelector('.shop-modal:not(.hidden)') &&
     !document.querySelector('.gamble-modal')
   ) {
     autoWaveTimer -= dt;
     if (autoWaveTimer <= 0) {
       autoWaveTimer = 2.0;
-      if (!state.waveFailed) {
-        startWave(false);
-      } else {
-        startWave(true);
-      }
+      startWave(false);
     }
   } else {
     autoWaveTimer = 2.0;
@@ -13573,6 +14529,47 @@ function loop(now) {
     updateMageBossHud();
     updateBuilderPanel();
     updateHPShieldHud();
+    // ✅ ФИКС: обновляем счётчик врагов, волну, золото в HUD каждый кадр
+    try { updateHUDFast(); } catch(e) {}
+    // ✅ НОВОЕ: обновляем кнопку "Волна N идёт... (осталось: X)"
+    // через render() раз в ~200 мс, чтобы не грузить DOM каждый кадр
+if (now - (window.__lastButtonRender || 0) > 200) {
+  window.__lastButtonRender = now;
+  try {
+    const btn = document.getElementById('startWaveBtn');
+    const finishBtn = document.getElementById('finishWaveBtn');
+
+    // ✅ СТРАХОВКА: обновляем кнопку «Завершить» через render() раз в 200 мс.
+    // Просто вызываем render() — он сам решит, что показывать.
+    if (typeof render === 'function' && !running) {
+      // Если волна не идёт, а кнопка "Начать" показывает боевой режим —
+      // принудительно перерисовываем
+      const btn = document.getElementById('startWaveBtn');
+      if (btn && btn.textContent.startsWith('⚔️')) {
+        render();
+      }
+    }
+
+    // ✅ ФИКС: обновляем текст кнопки ТОЛЬКО когда волна реально идёт.
+    // Если running=false — НЕ трогаем кнопку, чтобы render() мог показать
+    // «▶️ Начать волну N».
+    if (btn && running) {
+      if (megaBoss && megaBoss.alive) btn.textContent = `⚔️ МЕГА-БОСС идёт...`;
+      else if (mageBoss && mageBoss.alive) btn.textContent = `⚔️ МАГ идёт...`;
+      else if (verityBoss && verityBoss.alive) btn.textContent = `⚔️ ВЕРИТИ идёт...`;
+      else btn.textContent = `⚔️ Волна ${state.wave} идёт...`;
+    }
+    // ✅ КОГДА ВОЛНА НЕ ИДЁТ — вызываем render() раз в 200 мс,
+    // чтобы кнопка «Начать волну N» гарантированно отобразилась.
+    else if (btn && !running && !state.waveInProgress && !state.waveLocked) {
+      // Считаем, что волна завершена — обновляем UI
+      if (btn.textContent.startsWith('⚔️')) {
+        // Кнопка «залипла» в боевом режиме — принудительно перерисовываем
+        if (typeof render === 'function') render();
+      }
+    }
+  } catch(e) {}
+}
     lastClickCdRender = now;
   }
 
@@ -13597,17 +14594,32 @@ if (state.wave === 0 && state.gold === 0) window.__setState('gold', 50);
 // принудительно показываем его.
 if (
   state.waveInProgress ||
+  state.waveLocked ||
   (state.interruptedWave !== null && state.interruptedWave !== undefined)
 ) {
-  window.__setState('waveFailed', true);
-  window.__setState('waveInProgress', false);
-  if (!window.__waveInterruptedRestored) {
+  const isRealInterrupt = !!state.waveInProgress;
+
+  window.__internalWrite = true;
+  try {
+    state.waveInProgress = false;
+    state.waveLocked = false;   // ← снимаем блокировку при загрузке
+    state.waveFailed = isRealInterrupt;
+    if (!isRealInterrupt) {
+      state.interruptedWave = null;
+      state.interruptedWaveConfig = null;
+      state.interruptedWaveType = null;
+      state.interruptedWaveStart = null;
+    }
+  } finally {
+    window.__internalWrite = false;
+  }
+
+  if (isRealInterrupt && !window.__waveInterruptedRestored) {
     window.__waveInterruptedRestored = {
       wave: state.interruptedWave || state.wave,
       type: state.interruptedWaveType || 'normal',
     };
   }
-  // Обнуляем running, чтобы кнопки корректно отрисовались
   running = false;
 }
 
