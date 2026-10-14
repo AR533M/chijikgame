@@ -2974,9 +2974,51 @@ const MUTATION_UPGRADES = [
   },
 ];
 
+/* ============ СПЕЦ-РАСЧЁТ УРОНА ПВО ============ */
+// Каждые 25 уровней:
+//   1) +50% к общему накопленному урону (×1.5)
+//   2) шаг прироста за уровень тоже растёт в 1.5 раза
+//
+//   Уровни 1..25:   +40 за уровень
+//   На 25-м: ×1.5 к общему
+//   Уровни 26..50:  +60 за уровень (40 × 1.5)
+//   На 50-м: ×1.5 к общему
+//   Уровни 51..75:  +90 за уровень
+//   ...
+function getDamageUpgradeEffect(lvl) {
+  const base = 20 * 2.5;        // база = 50
+  let currentStep = 40;         // шаг на первой ступени
+  const milestone = 25;         // длина ступени
+  const boost = 1.5;            // +50% / ×1.5
+
+  if (lvl <= 0) return base;
+
+  let value = base;
+  let remaining = lvl;
+  let counter = 0;
+
+  // Идём по уровням, отслеживая границы ступеней
+  while (remaining > 0) {
+    const levelsInThisStep = Math.min(milestone, remaining);
+    // Прирост за эти уровни по текущему шагу
+    value += levelsInThisStep * currentStep;
+    remaining -= levelsInThisStep;
+    counter += levelsInThisStep;
+
+    // Если завершили полную ступень и есть ещё уровни — применяем ×1.5
+    // (и к накопленному значению, и к шагу на следующую ступень)
+    if (counter % milestone === 0 && remaining > 0) {
+      value *= boost;          // +50% к общему урону
+      currentStep *= boost;    // шаг на след. ступень тоже ×1.5
+    }
+  }
+
+  return value;
+}
+
 const UPGRADES = [
-  { id: 'damage', name: 'Урон ракеты', icon: '🚀', desc: 'Урон каждой ракеты', maxLevel: BASE_MAX_LEVEL, baseCost: 15 * PRICE_MULTIPLIER, costMult: 1.15, effect: lvl => (20 + lvl * 32) * 2.5, effectText: lvl => `${((10 + lvl * 16) * 2.5).toFixed(0)}` },
-{ id: 'firerate', name: 'Скорость пуска', icon: '⚡', desc: 'Пусков в секунду (÷5 от базовой)', maxLevel: BASE_MAX_LEVEL, baseCost: 25 * PRICE_MULTIPLIER, costMult: 1.18, effect: lvl => (1 + lvl * 0.3) / 5, effectText: lvl => `${((1 + lvl * 0.6) / 5).toFixed(2)}/с` },
+  { id: 'damage', name: 'Урон ракеты', icon: '🚀', desc: 'Урон каждой ракеты. Каждые 25 ур. шаг прироста ×1.5', maxLevel: BASE_MAX_LEVEL, baseCost: 15 * PRICE_MULTIPLIER, costMult: 1.15, effect: lvl => getDamageUpgradeEffect(lvl), effectText: lvl => `${getDamageUpgradeEffect(lvl).toFixed(0)}` },
+  { id: 'firerate', name: 'Скорость пуска', icon: '⚡', desc: 'Пусков в секунду (÷5 от базовой)', maxLevel: BASE_MAX_LEVEL, baseCost: 25 * PRICE_MULTIPLIER, costMult: 1.18, effect: lvl => (1 + lvl * 0.3) / 5, effectText: lvl => `${((1 + lvl * 0.6) / 5).toFixed(2)}/с` },
   { id: 'range', name: 'Радиус обзора', icon: '🎯', desc: 'Дальность перехвата (макс. 600px)', maxLevel: 100, baseCost: 40 * PRICE_MULTIPLIER, costMult: 1.22, effect: lvl => Math.min(600, 195 + lvl * 4.05), effectText: lvl => `${Math.round(Math.min(600, 195 + lvl * 4.05))}px` },
   { id: 'crit', name: 'Крит-шанс', icon: '💥', desc: 'Шанс крита (×3), макс. 50%', maxLevel: BASE_MAX_LEVEL, baseCost: 60 * PRICE_MULTIPLIER, costMult: 1.20, effect: lvl => Math.min(lvl * 0.002, 0.5), effectText: lvl => `${(Math.min(lvl * 0.002, 0.5) * 100).toFixed(1)}%` },
   {
@@ -16390,8 +16432,9 @@ function renderWavesModal() {
   if (!grid) return;
   grid.innerHTML = '';
   const maxWave = state.maxWaveReached || 0;
-  // Если ещё ничего не прошёл — показываем до 1-й волны
-  const limit = Math.max(maxWave, 1);
+  // Показываем все пройденные волны + одну следующую (для запаса).
+  // Если ещё ничего не прошёл — показываем до 1-й волны.
+  const limit = Math.max(maxWave + 1, 1);
 
   for (let w = 1; w <= limit; w++) {
     const btn = document.createElement('button');
@@ -16435,6 +16478,14 @@ btn.onclick = () => {
       state.currentWaveConfig = null;
       state.baseHp = getTowerStats().maxHp;
       state.shield = getShieldStats().max;
+      // ✅ ВАЖНО: не даём maxWaveReached "схлопнуться" при выборе
+      // более ранней волны. Иначе после выбора волны 25 (при maxWaveReached = 25)
+      // всё ок, но если бы maxWaveReached был меньше — он бы испортился.
+      if (w > (state.maxWaveReached || 0) + 1) {
+        // защита от выбора волны "из будущего"
+        showToast('🔒 Эту волну ты ещё не проходил');
+        return;
+      }
     } catch(e) {}
   });
   // Сбрасываем прерванную волну — игрок сам выбрал, что играть
@@ -16455,7 +16506,9 @@ btn.onclick = () => {
   // НЕ запускаем волну — игрок сам нажмёт «Начать волну»
 };
 
-    // Если волна выше maxWaveReached — блокируем
+    // Если волна выше maxWaveReached — блокируем.
+    // Разрешаем выбрать любую волну вплоть до уже пройденной (maxWave)
+    // и ровно одну новую (maxWave + 1).
     if (w > maxWave + 1) {
       btn.classList.add('locked');
       btn.title = '🔒 Эту волну ты ещё не проходил';
