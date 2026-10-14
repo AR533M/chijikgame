@@ -1743,6 +1743,21 @@
   }
   .hud-daily-btn:hover { transform: scale(1.1); box-shadow: 0 0 35px rgba(251, 191, 36, 1); }
   .hud-daily-btn.hidden { display: none; }
+  /* === СЕРОЕ (НЕАКТИВНОЕ) СОСТОЯНИЕ — награда уже получена === */
+  .hud-daily-btn.claimed {
+    background: linear-gradient(135deg, #475569, #334155);
+    border-color: #64748b;
+    box-shadow: 0 0 15px rgba(100, 116, 139, 0.4);
+    animation: none;
+    opacity: 0.75;
+  }
+  .hud-daily-btn.claimed:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(100, 116, 139, 0.7);
+    opacity: 1;
+  }
+  /* У серой кнопки восклицательный знак скрыт */
+  .hud-daily-btn.claimed .daily-badge { display: none !important; }
   .hud-daily-btn .daily-badge {
     position: absolute; top: -4px; right: -4px;
     background: #ef4444; color: #fff;
@@ -1902,7 +1917,7 @@
 </div>
 
 <!-- === КНОПКА ЕЖЕДНЕВНОГО ВХОДА === -->
-<div class="hud-daily-btn hidden" id="dailyBtn" title="Ежедневный вход">
+<div class="hud-daily-btn" id="dailyBtn" title="Ежедневный вход">
   🎁
   <span class="daily-badge" id="dailyBadge" style="display:none">!</span>
 </div>
@@ -19423,12 +19438,17 @@ function updateDailyButton() {
   const btn = document.getElementById('dailyBtn');
   const badge = document.getElementById('dailyBadge');
   if (!btn) return;
+
   const canClaim = canClaimDaily();
+
   if (canClaim) {
-    btn.classList.remove('hidden');
+    // Есть доступная награда — кнопка активна, золотая, с восклицательным знаком
+    btn.classList.remove('hidden', 'claimed');
     if (badge) badge.style.display = 'flex';
   } else {
-    btn.classList.add('hidden');
+    // Награда уже получена — кнопка НЕ пропадает, становится серой без бейджа
+    btn.classList.remove('hidden');
+    btn.classList.add('claimed');
     if (badge) badge.style.display = 'none';
   }
 }
