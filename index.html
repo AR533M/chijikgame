@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 
-<!-- === ЗАЩИТА ОТ КЭША GITHUB PAGES === -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<!-- === ЗАЩИТА ОТ КЭША GITHUB PAGES (усиленная) === -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<meta http-equiv="Clear-Site-Data" content="cache">
 
 <title>ПВО — Инкрементальная Защита</title>
 <style>
@@ -2298,7 +2299,7 @@ function distSq(ax, ay, bx, by) {
 }
 
 /* ============ ЗАЩИТА ОТ УСТАРЕВШЕГО КЭША GITHUB PAGES ============ */
-const BUILD_VERSION = '4.5.0-2026-10-12-1200';
+const BUILD_VERSION = '4.5.1-2026-10-14-daily-btn-fix';
 const STORAGE_KEY = 'pvo_build_version';
 
 let __lastSeenBuild = null;
